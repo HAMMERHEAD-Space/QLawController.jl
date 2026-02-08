@@ -1,6 +1,14 @@
 using QLaw
+
+using AstroCoords
+using AstroForceModels
+using LinearAlgebra
+using StaticArrays
 using Test
 
 @testset "QLaw.jl" begin
-    # Write your tests here.
+    include("test_types.jl")
+    include("test_core.jl")
+    include("test_api.jl")
+    include("test_leo_to_geo.jl")
 end
