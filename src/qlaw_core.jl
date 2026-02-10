@@ -13,6 +13,7 @@ export compute_penalty
 export compute_Q, compute_Q_from_vec
 export compute_Qdot_coefficients, compute_thrust_direction, thrust_direction_to_rtn
 export compute_effectivity
+export compute_thrust_and_effectivity
 export effectivity_activation
 export check_convergence
 
@@ -318,26 +319,28 @@ end
 # =============================================================================
 
 """
-    compute_penalty(a, f, g, rp_min)
+    compute_penalty(a, f, g, rp_min, k_pen=100.0)
 
 Compute the periapsis penalty function P (Varga Eq. 9).
 P = exp(k * (1 - rp/rp_min))
 
 This is smooth/continuous everywhere (no branching), which is required for
 AD compatibility. When rp >> rp_min the exponent is very negative and P ≈ 0.
+
+# Arguments
+- `k_pen`: Steepness of the exponential barrier (default: 100.0)
 """
-function compute_penalty(a::T, f::T, g::T, rp_min::Number) where {T}
+function compute_penalty(a::T, f::T, g::T, rp_min::Number, k_pen::Number = 100.0) where {T}
     # Regularized eccentricity: eps(T)^2 prevents 0/0 in ForwardDiff
     # derivative of sqrt at f=g=0 (circular orbits)
     e = sqrt(f^2 + g^2 + eps(T)^2)
     rp = a * (one(T) - e)  # Periapsis radius
-    k_pen = T(100.0)  # Penalty steepness
-    return exp(k_pen * (one(T) - rp / rp_min))
+    return exp(T(k_pen) * (one(T) - rp / rp_min))
 end
 
 # Convenience method that takes ModEq
-function compute_penalty(oe::ModEq{T}, rp_min::Number) where {T}
-    return compute_penalty(get_sma(oe), oe.f, oe.g, rp_min)
+function compute_penalty(oe::ModEq{T}, rp_min::Number, k_pen::Number = 100.0) where {T}
+    return compute_penalty(get_sma(oe), oe.f, oe.g, rp_min, k_pen)
 end
 
 # =============================================================================
@@ -370,6 +373,7 @@ function compute_Q_from_vec_with_rates(
     m_scaling::Number = 1.0,
     n_scaling::Number = 4.0,
     r_scaling::Number = 2.0,
+    k_pen::Number = 100.0,
 ) where {T,Tt,Tw,Tr}
 
     a, f, g, h, k = oe_vec[1], oe_vec[2], oe_vec[3], oe_vec[4], oe_vec[5]
@@ -379,7 +383,7 @@ function compute_Q_from_vec_with_rates(
     S_vec = compute_scaling(a, T(aT), m_scaling, n_scaling, r_scaling)
 
     # Compute penalty
-    P = compute_penalty(a, f, g, rp_min)
+    P = compute_penalty(a, f, g, rp_min, k_pen)
 
     # Compute Q - max_rates is constant, not differentiated
     Q = zero(T)
@@ -423,6 +427,7 @@ function compute_Q_from_vec(
     m_scaling::Number = 1.0,
     n_scaling::Number = 4.0,
     r_scaling::Number = 2.0,
+    k_pen::Number = 100.0,
 ) where {T,Tt,Tw}
 
     a, f, g, h, k = oe_vec[1], oe_vec[2], oe_vec[3], oe_vec[4], oe_vec[5]
@@ -440,6 +445,7 @@ function compute_Q_from_vec(
         m_scaling,
         n_scaling,
         r_scaling,
+        k_pen,
     )
 end
 
@@ -472,6 +478,7 @@ function compute_Q(
     m_scaling::Number = 1.0,
     n_scaling::Number = 4.0,
     r_scaling::Number = 2.0,
+    k_pen::Number = 100.0,
 ) where {T}
 
     # Get element vectors (a, f, g, h, k)
@@ -494,6 +501,7 @@ function compute_Q(
         m_scaling,
         n_scaling,
         r_scaling,
+        k_pen,
     )
 end
 
@@ -517,6 +525,7 @@ function compute_Q(
         params.m_scaling,
         params.n_scaling,
         params.r_scaling,
+        params.k_penalty,
     )
 end
 
@@ -552,6 +561,7 @@ function compute_Qdot_coefficients(
     m_scaling::Number = 1.0,
     n_scaling::Number = 4.0,
     r_scaling::Number = 2.0,
+    k_pen::Number = 100.0,
 ) where {T1<:Number,T2<:Number,T3<:Number}
     T = promote_type(T1, T2, T3)
     # Get current orbital elements
@@ -571,6 +581,7 @@ function compute_Qdot_coefficients(
     _m_scaling = m_scaling
     _n_scaling = n_scaling
     _r_scaling = r_scaling
+    _k_pen = k_pen
 
     # Compute ∂Q/∂oe using ForwardDiff
     # max_rates is treated as CONSTANT (not differentiated through)
@@ -585,6 +596,7 @@ function compute_Qdot_coefficients(
             _m_scaling,
             _n_scaling,
             _r_scaling,
+            _k_pen,
         )
     end
 
@@ -631,6 +643,7 @@ function compute_thrust_direction(
     m_scaling::Number = 1.0,
     n_scaling::Number = 4.0,
     r_scaling::Number = 2.0,
+    k_pen::Number = 100.0,
 ) where {T1<:Number,T2<:Number,T3<:Number}
 
     D1, D2, D3 = compute_Qdot_coefficients(
@@ -644,6 +657,7 @@ function compute_thrust_direction(
         m_scaling,
         n_scaling,
         r_scaling,
+        k_pen,
     )
 
     # From Eq. (27)-(28)
@@ -677,6 +691,7 @@ function compute_thrust_direction(
         params.m_scaling,
         params.n_scaling,
         params.r_scaling,
+        params.k_penalty,
     )
 end
 
@@ -701,13 +716,16 @@ end
 # =============================================================================
 
 """
-    compute_effectivity(oe, oeT, weights, μ, F_max, Wp, rp_min, n_points, eff_type)
+    compute_effectivity(oe, oeT, weights, μ, F_max, Wp, rp_min, n_points, eff_type,
+                        search_method; Qdot_n_precomputed=nothing, kwargs...)
 
 Compute the effectivity η.
 
 # Arguments
 - `eff_type`: `AbsoluteEffectivity()` or `RelativeEffectivity()`
-- `n_points`: Number of points to search over true longitude
+- `search_method`: `GridSearch()` or `RefinedSearch()` (Brent refinement via Optim.jl)
+- `n_points`: Number of points for grid search over true longitude
+- `Qdot_n_precomputed`: If provided, skip recomputing Q̇ at current position (avoids redundant work)
 
 # Returns
 - `η`: Effectivity value
@@ -724,36 +742,39 @@ function compute_effectivity(
     Wp::Number,
     rp_min::Number,
     n_points::Int,
-    eff_type::AbstractEffectivityType;
+    eff_type::AbstractEffectivityType,
+    search_method::AbstractEffectivitySearch = RefinedSearch();
     m_scaling::Number = 1.0,
     n_scaling::Number = 4.0,
     r_scaling::Number = 2.0,
+    k_pen::Number = 100.0,
+    Qdot_n_precomputed::Union{Nothing,Number} = nothing,
 ) where {T1<:Number,T2<:Number,T3<:Number}
-
-    # Get Q̇ at current position
-    _, _, Qdot_n = compute_thrust_direction(
-        oe,
-        oeT,
-        weights,
-        μ,
-        F_max,
-        Wp,
-        rp_min,
-        m_scaling,
-        n_scaling,
-        r_scaling,
-    )
 
     T = promote_type(T1, T2, T3)
 
-    # Search over true longitude for Q̇_nn (and Q̇_nx for relative)
-    Qdot_nn = Qdot_n
-    Qdot_nx = Qdot_n
+    # Get Q̇ at current position (reuse pre-computed value if available)
+    if Qdot_n_precomputed !== nothing
+        Qdot_n = T(Qdot_n_precomputed)
+    else
+        _, _, Qdot_n = compute_thrust_direction(
+            oe,
+            oeT,
+            weights,
+            μ,
+            F_max,
+            Wp,
+            rp_min,
+            m_scaling,
+            n_scaling,
+            r_scaling,
+            k_pen,
+        )
+    end
 
-    L_range = range(zero(T), T(2π), length = n_points)
-
-    for L_test in L_range
-        oe_test = ModEq{T}(oe.p, oe.f, oe.g, oe.h, oe.k, L_test)
+    # Helper: compute Q̇ at a given true longitude
+    function _qdot_at_L(L_val)
+        oe_test = ModEq{T}(oe.p, oe.f, oe.g, oe.h, oe.k, T(L_val))
         _, _, Qdot_test = compute_thrust_direction(
             oe_test,
             oeT,
@@ -765,10 +786,61 @@ function compute_effectivity(
             m_scaling,
             n_scaling,
             r_scaling,
+            k_pen,
         )
+        return Qdot_test
+    end
 
-        Qdot_nn = min(Qdot_nn, Qdot_test)
-        Qdot_nx = max(Qdot_nx, Qdot_test)
+    # Grid search to find approximate extrema
+    Qdot_nn = Qdot_n
+    Qdot_nx = Qdot_n
+    L_nn = oe.L  # L at approximate minimum
+    L_nx = oe.L  # L at approximate maximum
+
+    L_range = range(zero(T), T(2π), length = n_points)
+
+    for L_test in L_range
+        Qdot_test = _qdot_at_L(L_test)
+
+        if Qdot_test < Qdot_nn
+            Qdot_nn = Qdot_test
+            L_nn = L_test
+        end
+        if Qdot_test > Qdot_nx
+            Qdot_nx = Qdot_test
+            L_nx = L_test
+        end
+    end
+
+    # Refine extrema using Brent's method (Optim.jl) if requested
+    if search_method isa RefinedSearch
+        ΔL = T(2π) / n_points
+
+        # Refine minimum (Qdot_nn) using Brent's method
+        L_lo_min = Float64(L_nn - ΔL)
+        L_hi_min = Float64(L_nn + ΔL)
+        result_min = optimize(
+            L_val -> Float64(_qdot_at_L(L_val)),
+            L_lo_min,
+            L_hi_min,
+            Brent();
+            abs_tol = 1e-8,
+        )
+        Qdot_nn_refined = T(Optim.minimum(result_min))
+        Qdot_nn = min(Qdot_nn, Qdot_nn_refined)
+
+        # Refine maximum (Qdot_nx) by minimizing the negative
+        L_lo_max = Float64(L_nx - ΔL)
+        L_hi_max = Float64(L_nx + ΔL)
+        result_max = optimize(
+            L_val -> -Float64(_qdot_at_L(L_val)),
+            L_lo_max,
+            L_hi_max,
+            Brent();
+            abs_tol = 1e-8,
+        )
+        Qdot_nx_refined = T(-Optim.minimum(result_max))
+        Qdot_nx = max(Qdot_nx, Qdot_nx_refined)
     end
 
     η = _compute_eta(eff_type, Qdot_n, Qdot_nn, Qdot_nx, T)
@@ -794,7 +866,8 @@ function compute_effectivity(
     weights::QLawWeights{T3},
     μ::Number,
     F_max::Number,
-    params::QLawParameters,
+    params::QLawParameters;
+    Qdot_n_precomputed::Union{Nothing,Number} = nothing,
 ) where {T1<:Number,T2<:Number,T3<:Number}
     return compute_effectivity(
         oe,
@@ -805,11 +878,49 @@ function compute_effectivity(
         params.Wp,
         params.rp_min,
         params.n_search_points,
-        params.effectivity_type;
+        params.effectivity_type,
+        params.effectivity_search;
         m_scaling = params.m_scaling,
         n_scaling = params.n_scaling,
         r_scaling = params.r_scaling,
+        k_pen = params.k_penalty,
+        Qdot_n_precomputed = Qdot_n_precomputed,
     )
+end
+
+# =============================================================================
+# Combined Thrust Direction + Effectivity (avoids redundant computation)
+# =============================================================================
+
+"""
+    compute_thrust_and_effectivity(oe, oeT, weights, μ, F_max, params)
+
+Compute both the optimal thrust direction and effectivity in a single call,
+avoiding the redundant Q̇ computation at the current position.
+
+# Returns
+- `α`: In-plane thrust angle [rad]
+- `β`: Out-of-plane thrust angle [rad]
+- `Qdot_n`: Minimized Q̇ value at current position
+- `η`: Effectivity value
+"""
+function compute_thrust_and_effectivity(
+    oe::ModEq{T1},
+    oeT::ModEq{T2},
+    weights::QLawWeights{T3},
+    μ::Number,
+    F_max::Number,
+    params::QLawParameters,
+) where {T1<:Number,T2<:Number,T3<:Number}
+
+    # Compute thrust direction (once)
+    α, β, Qdot_n = compute_thrust_direction(oe, oeT, weights, μ, F_max, params)
+
+    # Compute effectivity, reusing the already-computed Qdot_n
+    η, _, _, _ =
+        compute_effectivity(oe, oeT, weights, μ, F_max, params; Qdot_n_precomputed = Qdot_n)
+
+    return (α, β, Qdot_n, η)
 end
 
 # =============================================================================
@@ -845,6 +956,7 @@ end
     check_convergence(oe, oeT, criterion::SummedErrorConvergence)
 
 Check convergence using summed normalized element errors (paper default).
+Legacy method without weights — checks all elements.
 """
 function check_convergence(
     oe::ModEq{T},
@@ -894,17 +1006,34 @@ function check_convergence(
     return Q_normalized < criterion.Rc * sqrt(W_sum)
 end
 
-# SummedError doesn't need extra args beyond oe/oeT, ignore the rest
+"""
+    check_convergence(oe, oeT, weights, μ, F_max, params, criterion::SummedErrorConvergence)
+
+Weight-aware summed error convergence. Only checks elements with non-zero weight,
+so elements marked "free" (W=0) are not required to match the target.
+"""
 function check_convergence(
-    oe::ModEq,
-    oeT::ModEq,
-    weights::QLawWeights,
+    oe::ModEq{T1},
+    oeT::ModEq{T2},
+    weights::QLawWeights{T3},
     μ::Number,
     F_max::Number,
     params::QLawParameters,
     criterion::SummedErrorConvergence,
-)
-    return check_convergence(oe, oeT, criterion)
+) where {T1<:Number,T2<:Number,T3<:Number}
+    a = get_sma(oe)
+    aT = get_sma(oeT)
+
+    total_err = zero(promote_type(T1, T2))
+
+    # Only accumulate errors for targeted elements (W > 0)
+    (weights.Wa > 0) && (total_err += abs(a - aT) / aT)
+    (weights.Wf > 0) && (total_err += abs(oe.f - oeT.f))
+    (weights.Wg > 0) && (total_err += abs(oe.g - oeT.g))
+    (weights.Wh > 0) && (total_err += abs(oe.h - oeT.h))
+    (weights.Wk > 0) && (total_err += abs(oe.k - oeT.k))
+
+    return total_err < criterion.tol
 end
 
 """

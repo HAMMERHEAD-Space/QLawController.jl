@@ -48,6 +48,7 @@ end
                              μ::Number, γ::Number=1.0)
 
 Compute the thrust acceleration vector in RTN frame using Q-Law guidance.
+Uses combined thrust direction + effectivity computation to avoid redundant work.
 
 # Returns
 - `a_thrust_rtn`: Thrust acceleration in RTN frame [km/s²]
@@ -72,11 +73,8 @@ function qlaw_thrust_acceleration(
     # Maximum thrust acceleration
     F_max = max_thrust_acceleration(spacecraft, m, r)
 
-    # Compute optimal thrust direction
-    α, β, _ = compute_thrust_direction(oe, oeT, weights, μ, F_max, params)
-
-    # Compute effectivity
-    η, _, _, _ = compute_effectivity(oe, oeT, weights, μ, F_max, params)
+    # Compute thrust direction AND effectivity together (avoids redundant Qdot_n)
+    α, β, _, η = compute_thrust_and_effectivity(oe, oeT, weights, μ, F_max, params)
 
     # Activation (smooth throttle based on effectivity)
     activation = effectivity_activation(η, params.η_threshold, params.η_smoothness)
@@ -109,8 +107,8 @@ IMPORTANT: The Q-Law algorithm uses semi-major axis `a` internally (as per the p
 showed it causes better controller performance"). 
 
 However, our state uses semi-latus rectum `p` (from ModEq). The GVE matrix used here
-must match what Q-Law expects. We use the a-based GVE from Eq. (3) of the paper,
-then convert the da/dt to dp/dt for propagation consistency.
+is computed via `equinoctial_gve_partials()` (shared with Q-Law core) using the a-based
+formulation, then da/dt is converted to dp/dt for propagation consistency.
 
 Parameters p should be a ComponentArray with:
 - `μ`: Gravitational parameter
@@ -161,9 +159,8 @@ function qlaw_eom(u::AbstractVector, ps::ComponentVector, t::Number, problem::QL
     acc_total_rtn = acc_rtn + a_thrust_rtn
 
     # =========================================================================
-    # GVE using SEMI-MAJOR AXIS formulation (Paper Eq. 3)
-    # This is CRITICAL - Q-Law computes optimal thrust using a-based GVE,
-    # so dynamics must use the same formulation for consistency!
+    # GVE using equinoctial_gve_partials (shared with Q-Law core)
+    # This ensures dynamics and controller use identical GVE formulations.
     # =========================================================================
 
     p = oe.p
@@ -173,55 +170,18 @@ function qlaw_eom(u::AbstractVector, ps::ComponentVector, t::Number, problem::QL
     e_sq = f^2 + g^2
     a = p / (1 - e_sq)
 
-    # Auxiliary quantities (matching equinoctial_gve_partials in qlaw_core.jl)
-    q = compute_q(f, g, L)
-    sL, cL = sincos(L)
+    # Compute GVE matrix using the shared function from qlaw_core.jl
+    A = equinoctial_gve_partials(oe, μ)
 
-    # Common factor for a-based GVE (Paper Eq. 3)
-    sqrt_factor = sqrt(a * (1 - e_sq) / μ)  # = sqrt(p/μ)
-    common = sqrt_factor / q
+    # Compute element rates: oe_dot = A * F_rtn (6-vector)
+    oe_dot = A * acc_total_rtn
 
-    # Build a-based GVE matrix (Paper Eq. 3)
-    # Row 1: da/dF
-    da_dFr = 2 * a * q * common * (f * sL - g * cL) / (1 - e_sq)
-    da_dFt = 2 * a * q^2 * common / (1 - e_sq)
-    da_dFh = 0.0
-
-    # Row 2: df/dF
-    df_dFr = q * common * sL
-    df_dFt = common * ((q + 1) * cL + f)
-    df_dFh = -common * g * (h * sL - k * cL)
-
-    # Row 3: dg/dF
-    dg_dFr = -q * common * cL
-    dg_dFt = common * ((q + 1) * sL + g)
-    dg_dFh = common * f * (h * sL - k * cL)
-
-    # Row 4: dh/dF
-    s_sq = 1 + h^2 + k^2
-    dh_dFr = 0.0
-    dh_dFt = 0.0
-    dh_dFh = common * s_sq * cL / 2
-
-    # Row 5: dk/dF
-    dk_dFr = 0.0
-    dk_dFt = 0.0
-    dk_dFh = common * s_sq * sL / 2
-
-    # Row 6: dL/dF (perturbation only)
-    dL_dFr = 0.0
-    dL_dFt = 0.0
-    dL_dFh = common * (h * sL - k * cL)
-
-    # Compute element rates
-    Fr, Ft, Fh = acc_total_rtn[1], acc_total_rtn[2], acc_total_rtn[3]
-
-    da_dt = da_dFr * Fr + da_dFt * Ft + da_dFh * Fh
-    df_dt = df_dFr * Fr + df_dFt * Ft + df_dFh * Fh
-    dg_dt = dg_dFr * Fr + dg_dFt * Ft + dg_dFh * Fh
-    dh_dt = dh_dFr * Fr + dh_dFt * Ft + dh_dFh * Fh
-    dk_dt = dk_dFr * Fr + dk_dFt * Ft + dk_dFh * Fh
-    dL_dt_pert = dL_dFr * Fr + dL_dFt * Ft + dL_dFh * Fh
+    da_dt = oe_dot[1]
+    df_dt = oe_dot[2]
+    dg_dt = oe_dot[3]
+    dh_dt = oe_dot[4]
+    dk_dt = oe_dot[5]
+    dL_dt_pert = oe_dot[6]
 
     # Convert da/dt to dp/dt for state propagation (since state uses p, not a)
     # p = a * (1 - f² - g²)
@@ -229,21 +189,18 @@ function qlaw_eom(u::AbstractVector, ps::ComponentVector, t::Number, problem::QL
     #       = da/dt * (1 - e²) - 2a * (f*df/dt + g*dg/dt)
     dp_dt = da_dt * (1 - e_sq) - 2 * a * (f * df_dt + g * dg_dt)
 
-    # Add Keplerian motion for true longitude (Paper Eq. 5)
-    # dL/dt = q² * sqrt(aμ(1-f²-g²)) / (a²(1-f²-g²)) = q² * sqrt(μp) / (a*p)
-    dL_keplerian = q^2 * sqrt(μ * p) / (a * p)
+    # Keplerian true longitude rate: dL/dt = h/r² = q²√(μp)/p²
+    # where h = √(μp) is the specific angular momentum and r = p/q
+    q = compute_q(f, g, L)
+    dL_keplerian = q^2 * sqrt(μ * p) / p^2
 
     # Orbital radius for mass rate calculation
     r = p / q
 
-    # Mass rate (from thrust)
-    if throttle > eps(typeof(throttle))
-        T_N = max_thrust(problem.spacecraft, r) * throttle
-        vex = exhaust_velocity(problem.spacecraft) * 1000.0  # Convert to m/s
-        dm_dt = -T_N / vex  # kg/s
-    else
-        dm_dt = zero(throttle)
-    end
+    # Mass rate (AD-compatible: no branching, smooth throttle ensures dm→0 when not thrusting)
+    T_N = max_thrust(problem.spacecraft, r) * throttle
+    vex = exhaust_velocity(problem.spacecraft) * 1000.0  # Convert to m/s
+    dm_dt = -T_N / vex  # kg/s
 
     return SVector(
         dp_dt,                      # dp/dt (converted from da/dt)
@@ -291,6 +248,10 @@ end
 Get Sun position using AstroForceModels ThirdBodyModel or fallback to simple model.
 Applies Varga Θrot frame rotation if non-zero.
 
+The fallback model computes the Sun position in the ecliptic plane and then
+rotates to the J2000 equatorial frame using the mean obliquity of the ecliptic
+(ε ≈ 23.4393°).
+
 # Arguments
 - `ps`: Parameters (should contain JD0)
 - `t`: Time since epoch [s]
@@ -315,13 +276,25 @@ function get_sun_position(
             SVector{3}(sun_pos_m[1] / 1000.0, sun_pos_m[2] / 1000.0, sun_pos_m[3] / 1000.0)
     else
         # Fallback: simple circular orbit approximation for Sun (Earth-centered)
+        # Computes ecliptic longitude, then rotates to J2000 equatorial frame
         JD = haskey(ps, :JD) ? ps.JD + t / 86400.0 : 2451545.0 + t / 86400.0
         AU = 1.495978707e8  # km
         d = JD - 2451545.0
         M = 357.529 + 0.98560028 * d
         M_rad = deg2rad(M)
-        λ = M_rad + π
-        sun_pos = SVector{3}(AU * cos(λ), AU * sin(λ), 0.0)
+        λ = M_rad + π  # ecliptic longitude (Sun seen from Earth)
+
+        # Sun position in ecliptic coordinates
+        x_ecl = AU * cos(λ)
+        y_ecl = AU * sin(λ)
+
+        # Rotate from ecliptic to J2000 equatorial frame
+        # ε = mean obliquity of the ecliptic at J2000
+        ε = deg2rad(23.4393)
+        cε = cos(ε)
+        sε = sin(ε)
+
+        sun_pos = SVector{3}(x_ecl, y_ecl * cε, y_ecl * sε)
     end
 
     # Apply frame rotation (Varga Θrot parameter)

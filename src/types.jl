@@ -7,6 +7,7 @@ export QLawWeights
 export QLawParameters
 export AbstractConvergenceCriterion, SummedErrorConvergence, VargaConvergence
 export AbstractEffectivityType, AbsoluteEffectivity, RelativeEffectivity
+export AbstractEffectivitySearch, GridSearch, RefinedSearch
 export QLawProblem
 export QLawSolution
 export qlaw_problem
@@ -136,6 +137,30 @@ Relative effectivity: ηr = (Q̇n - Q̇nx) / (Q̇nn - Q̇nx) (Eq. 30).
 struct RelativeEffectivity <: AbstractEffectivityType end
 
 """
+    AbstractEffectivitySearch
+
+Abstract type for effectivity extrema search method.
+"""
+abstract type AbstractEffectivitySearch end
+
+"""
+    GridSearch
+
+Find Q̇ extrema using only a uniform grid over true longitude.
+Fast but may miss sharp extrema on eccentric orbits.
+"""
+struct GridSearch <: AbstractEffectivitySearch end
+
+"""
+    RefinedSearch
+
+Find Q̇ extrema using a grid scan followed by Brent's method refinement
+via Optim.jl. More accurate, especially for eccentric orbits where Q̇
+varies rapidly with true longitude (Varga Section 2.2).
+"""
+struct RefinedSearch <: AbstractEffectivitySearch end
+
+"""
     AbstractConvergenceCriterion
 
 Abstract type for Q-Law convergence criteria.
@@ -184,10 +209,12 @@ Parameters for Q-Law control algorithm.
 # Fields
 - `Wp`: Penalty weight for minimum periapsis constraint
 - `rp_min`: Minimum periapsis radius [km]
+- `k_penalty`: Steepness of periapsis penalty exponential (Varga Eq. 9)
 - `η_threshold`: Effectivity threshold for coasting (paper default: -0.01)
 - `η_smoothness`: Smoothness parameter for activation function (μ in paper)
 - `Θrot`: Frame rotation angle about Z-axis [rad] (Varga optimization variable)
 - `effectivity_type`: Effectivity computation method (`AbsoluteEffectivity()` or `RelativeEffectivity()`)
+- `effectivity_search`: Effectivity search method (`RefinedSearch()` or `GridSearch()`)
 - `n_search_points::Int`: Number of points for Q̇ search over true longitude
 - `m_scaling::Float64`: Varga Eq. 8 scaling parameter m
 - `n_scaling::Float64`: Varga Eq. 8 scaling exponent n
@@ -201,14 +228,17 @@ struct QLawParameters{
     Ts<:Number,
     Tθ<:Number,
     ET<:AbstractEffectivityType,
+    ES<:AbstractEffectivitySearch,
     CC<:AbstractConvergenceCriterion,
 }
     Wp::Tw
     rp_min::Tr
+    k_penalty::Float64
     η_threshold::Tt
     η_smoothness::Ts
     Θrot::Tθ
     effectivity_type::ET
+    effectivity_search::ES
     n_search_points::Int
     m_scaling::Float64
     n_scaling::Float64
@@ -219,10 +249,12 @@ end
 function QLawParameters(;
     Wp::Number = 1.0,
     rp_min::Number = 6578.0,  # Default: LEO altitude
+    k_penalty::Float64 = 100.0,  # Penalty steepness for periapsis constraint (Varga Eq. 9)
     η_threshold::Number = -0.01,  # Paper: -0.01 for constant thrust (avoids activation disruption near η≈0)
     η_smoothness::Number = 1e-4,
     Θrot::Number = 0.0,  # Frame rotation angle [rad] (Varga optimization variable)
     effectivity_type::AbstractEffectivityType = AbsoluteEffectivity(),
+    effectivity_search::AbstractEffectivitySearch = RefinedSearch(),
     n_search_points::Int = 50,
     m_scaling::Float64 = 1.0,  # Varga Eq. 8: scaling parameter m
     n_scaling::Float64 = 4.0,  # Varga Eq. 8: scaling exponent n
@@ -232,10 +264,12 @@ function QLawParameters(;
     return QLawParameters(
         Wp,
         rp_min,
+        k_penalty,
         η_threshold,
         η_smoothness,
         Θrot,
         effectivity_type,
+        effectivity_search,
         n_search_points,
         m_scaling,
         n_scaling,

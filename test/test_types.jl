@@ -59,10 +59,12 @@ end
     params = QLawParameters()
     @test params.Wp == 1.0
     @test params.rp_min == 6578.0
+    @test params.k_penalty == 100.0
     @test params.η_threshold == -0.01  # Paper: -0.01 for constant thrust
     @test params.η_smoothness == 1e-4
     @test params.Θrot == 0.0
     @test params.effectivity_type isa AbsoluteEffectivity
+    @test params.effectivity_search isa RefinedSearch
     @test params.n_search_points == 50
     @test params.m_scaling == 1.0
     @test params.n_scaling == 4.0
@@ -92,4 +94,9 @@ end
     @test params4.n_scaling == 2.0
     @test params4.r_scaling == 1.0
     @test params4.Θrot == 0.1
+
+    # Custom penalty steepness and effectivity search
+    params5 = QLawParameters(; k_penalty = 50.0, effectivity_search = GridSearch())
+    @test params5.k_penalty == 50.0
+    @test params5.effectivity_search isa GridSearch
 end

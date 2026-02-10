@@ -23,6 +23,7 @@ using LinearAlgebra
 using OrdinaryDiffEqCore
 using OrdinaryDiffEqAdamsBashforthMoulton: VCABM
 using SciMLBase
+using Optim: Optim, optimize, Brent
 using StaticArrays
 
 # =============================================================================
