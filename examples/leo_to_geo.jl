@@ -124,7 +124,7 @@ params = QLawParameters(;
     rp_min = 6378.0 + 200.0,     # Minimum periapsis (200 km altitude)
     η_threshold = ηth_doe,       # Effectivity threshold from Table 3 DOE
     η_smoothness = 1e-4,         # Activation smoothness
-    effectivity_type = :absolute,
+    effectivity_type = AbsoluteEffectivity(),
     n_search_points = 50
 )
 
@@ -471,7 +471,7 @@ for (name, weights, ηth) in [("Default", weights_default, 0.1),  # Default thre
         rp_min = 6378.0 + 200.0,
         η_threshold = ηth,
         η_smoothness = 1e-4,
-        effectivity_type = :absolute,
+        effectivity_type = AbsoluteEffectivity(),
         n_search_points = 50
     )
     

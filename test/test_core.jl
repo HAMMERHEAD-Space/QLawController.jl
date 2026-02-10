@@ -244,7 +244,7 @@ end
         weights = QLawWeights()
         
         η, Qdot_n, Qdot_nn, _ = compute_effectivity(
-            oe0, oeT, weights, μ, F_max, 1.0, 6378.0, 50, :absolute
+            oe0, oeT, weights, μ, F_max, 1.0, 6378.0, 50, AbsoluteEffectivity()
         )
         
         # η_absolute = Qdot_n / Qdot_nn
@@ -260,7 +260,7 @@ end
         weights = QLawWeights()
         
         η, Qdot_n, Qdot_nn, Qdot_nx = compute_effectivity(
-            oe0, oeT, weights, μ, F_max, 1.0, 6378.0, 50, :relative
+            oe0, oeT, weights, μ, F_max, 1.0, 6378.0, 50, RelativeEffectivity()
         )
         
         # η_relative = (Qdot_n - Qdot_nx) / (Qdot_nn - Qdot_nx)
@@ -276,7 +276,7 @@ end
         weights = QLawWeights()
         
         _, Qdot_n, Qdot_nn, Qdot_nx = compute_effectivity(
-            oe0, oeT, weights, μ, F_max, 1.0, 6378.0, 50, :absolute
+            oe0, oeT, weights, μ, F_max, 1.0, 6378.0, 50, AbsoluteEffectivity()
         )
         
         @test Qdot_nn ≤ Qdot_n
@@ -698,7 +698,7 @@ end
         L_rad = deg2rad(Float64(L_deg))
         oe = ModEq(p0, 0.0, 0.0, h0, 0.0, L_rad)
         
-        η, _, _, _ = compute_effectivity(oe, oeT, weights, μ, F_max, Wp, rp_min, 50, :absolute)
+        η, _, _, _ = compute_effectivity(oe, oeT, weights, μ, F_max, Wp, rp_min, 50, AbsoluteEffectivity())
         activation = QLaw.effectivity_activation(η, η_threshold, η_smoothness)
         
         if activation > 0.5

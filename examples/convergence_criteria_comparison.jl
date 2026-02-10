@@ -113,7 +113,7 @@ function objective_summed(x, p)
         rp_min = rp_min,
         η_threshold = x[6],
         η_smoothness = η_smoothness,
-        effectivity_type = :absolute,
+        effectivity_type = AbsoluteEffectivity(),
         n_search_points = 50,
         convergence_criterion = SummedErrorConvergence(0.05)
     )
@@ -144,7 +144,7 @@ function objective_varga(x, p)
         rp_min = rp_min,
         η_threshold = x[6],
         η_smoothness = η_smoothness,
-        effectivity_type = :absolute,
+        effectivity_type = AbsoluteEffectivity(),
         n_search_points = 50,
         convergence_criterion = VargaConvergence(1.0)
     )
@@ -197,7 +197,7 @@ weights_summed = QLawWeights(sol_summed.u[1], sol_summed.u[2], sol_summed.u[3],
                               sol_summed.u[4], sol_summed.u[5])
 params_summed = QLawParameters(;
     Wp=Wp, rp_min=rp_min, η_threshold=sol_summed.u[6],
-    η_smoothness=η_smoothness, effectivity_type=:absolute, n_search_points=50,
+    η_smoothness=η_smoothness, effectivity_type=AbsoluteEffectivity(), n_search_points=50,
     convergence_criterion=SummedErrorConvergence(0.05))
 prob_summed = qlaw_problem(oe0, oeT, tspan, μ, spacecraft;
     weights=weights_summed, qlaw_params=params_summed,
@@ -239,7 +239,7 @@ weights_varga = QLawWeights(sol_varga.u[1], sol_varga.u[2], sol_varga.u[3],
                              sol_varga.u[4], sol_varga.u[5])
 params_varga = QLawParameters(;
     Wp=Wp, rp_min=rp_min, η_threshold=sol_varga.u[6],
-    η_smoothness=η_smoothness, effectivity_type=:absolute, n_search_points=50,
+    η_smoothness=η_smoothness, effectivity_type=AbsoluteEffectivity(), n_search_points=50,
     convergence_criterion=VargaConvergence(1.0))
 prob_varga = qlaw_problem(oe0, oeT, tspan, μ, spacecraft;
     weights=weights_varga, qlaw_params=params_varga,
@@ -272,7 +272,7 @@ function evaluate_weights(name, weights, ηth)
     ]
         params = QLawParameters(;
             Wp=Wp, rp_min=rp_min, η_threshold=ηth,
-            η_smoothness=η_smoothness, effectivity_type=:absolute,
+            η_smoothness=η_smoothness, effectivity_type=AbsoluteEffectivity(),
             n_search_points=50,
             convergence_criterion=criterion)
 

@@ -62,7 +62,7 @@ end
     @test params.η_threshold == -0.01  # Paper: -0.01 for constant thrust
     @test params.η_smoothness == 1e-4
     @test params.Θrot == 0.0
-    @test params.effectivity_type == :absolute
+    @test params.effectivity_type isa AbsoluteEffectivity
     @test params.n_search_points == 50
     @test params.m_scaling == 1.0
     @test params.n_scaling == 4.0
@@ -71,12 +71,12 @@ end
     
     params2 = QLawParameters(; 
         η_threshold=0.2, 
-        effectivity_type=:relative,
+        effectivity_type=RelativeEffectivity(),
         rp_min=6500.0,
         Wp=2.0
     )
     @test params2.η_threshold == 0.2
-    @test params2.effectivity_type == :relative
+    @test params2.effectivity_type isa RelativeEffectivity
     @test params2.rp_min == 6500.0
     @test params2.Wp == 2.0
     

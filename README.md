@@ -15,20 +15,24 @@ Q-Law is a Lyapunov candidate function that provides a feedback guidance law for
 - **Automatic differentiation**: Uses ForwardDiff.jl for computing ∂Q/∂œ, enabling gradient-based optimization of weights
 - **Effectivity-based coasting**: Smooth activation function for AD-compatible thrust/coast decisions
 - **Flexible weighting**: Customizable weights for each orbital element to prioritize different transfer objectives
+- **Convergence criteria**: Choose between summed-error (`SummedErrorConvergence`) or Q-function-based (`VargaConvergence`) stopping conditions
+- **Weight optimization**: Optimize Q-Law weights using global (BlackBoxOptim) or local (SAMIN) solvers via Optimization.jl
+- **Perturbation models**: Gravity harmonics, third-body (Moon/Sun), and eclipse/shadow effects via AstroForceModels.jl
 - **SciML interface**: Compatible with `solve()` and `remake()` patterns from the SciML ecosystem
 - **Integration with HAMMERHEAD packages**: Built on [AstroCoords.jl](https://github.com/HAMMERHEAD-Space/AstroCoords.jl), [AstroPropagators.jl](https://github.com/HAMMERHEAD-Space/AstroPropagators.jl), and [AstroForceModels.jl](https://github.com/HAMMERHEAD-Space/AstroForceModels.jl)
 
 ### Implemented Features
 
-Based on the formulation from Petropoulos (2003) with enhancements from recent literature:
+Based on the formulation from Petropoulos (2003) with enhancements from Varga & Perez (2016):
 
-- Equinoctial orbital elements [a, f, g, h, k, L] (using semi-major axis per Varga & Perez)
+- Modified equinoctial orbital elements [p, f, g, h, k, L] with semi-major axis conversion (Varga & Perez)
 - Gauss Variational Equations (GVE) A-matrix for equinoctial elements
-- Q-Law Lyapunov function with scaling and penalty terms
-- Optimal thrust direction calculation (α*, β*)
-- Absolute and relative effectivity metrics
+- Q-Law Lyapunov function with scaling (Varga Eq. 8) and penalty terms
+- Optimal thrust direction calculation (α\*, β\*)
+- Absolute and relative effectivity metrics (`AbsoluteEffectivity`, `RelativeEffectivity`)
 - Smooth activation function for AD-compatible coasting decisions
-- Eclipse/shadow modeling via AstroForceModels.jl
+- Eclipse/shadow modeling via AstroForceModels.jl (conical and cylindrical)
+- Two convergence criteria: `SummedErrorConvergence` and `VargaConvergence`
 
 ## Installation
 
@@ -46,43 +50,40 @@ using AstroCoords
 # Earth gravitational parameter
 μ = 398600.4418  # km³/s²
 
-# Define initial orbit (LEO)
-kep0 = Keplerian(6878.0, 0.001, deg2rad(28.5), 0.0, 0.0, 0.0)
+# Define initial orbit (LEO) and target orbit (GEO)
+kep0 = Keplerian(6878.0, 0.0, deg2rad(28.5), 0.0, 0.0, 0.0)
+kepT = Keplerian(42164.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 
-# Define target orbit (GEO)
-kepT = Keplerian(42164.0, 0.001, deg2rad(0.1), 0.0, 0.0, 0.0)
-
-# Convert to Modified Equinoctial elements
 oe0 = ModEq(kep0, μ)
 oeT = ModEq(kepT, μ)
 
-# Define spacecraft: dry_mass=500kg, wet_mass=1000kg, thrust=1N, Isp=1500s
-spacecraft = QLawSpacecraft(500.0, 1000.0, 1.0, 1500.0)
+# Spacecraft: dry_mass=500 kg, wet_mass=1000 kg, thrust=1.445 N, Isp=1850 s
+spacecraft = QLawSpacecraft(500.0, 1000.0, 1.445, 1850.0)
 
-# Define Q-Law weights (from paper optimization results)
-weights = QLawWeights(0.0785, 0.7926, 0.6876, 0.3862, 0.5)
+# Q-Law weights (Wa, Wf, Wg, Wh, Wk)
+weights = QLawWeights(1.0, 1.0, 1.0, 1.0, 1.0)
 
-# Define parameters
+# Parameters
 params = QLawParameters(;
-    η_threshold = -0.01,  # Constant thrust (no coasting)
-    rp_min = 6578.0       # Minimum periapsis [km]
+    η_threshold = 0.2,
+    rp_min = 6578.0,
+    convergence_criterion = SummedErrorConvergence(0.05)
 )
 
-# Create problem
-tspan = (0.0, 86400.0 * 60.0)  # 60 days
+# Create and solve
+tspan = (0.0, 86400.0 * 100.0)  # 100 days max
 prob = qlaw_problem(oe0, oeT, tspan, μ, spacecraft;
     weights = weights,
     qlaw_params = params
 )
 
-# Solve
 sol = solve(prob)
 
-# Access solution
+# Access results
 println("Converged: ", sol.converged)
 println("Transfer time: ", sol.elapsed_time / 86400.0, " days")
-println("Total ΔV: ", sol.Δv_total, " km/s")
 println("Final mass: ", sol.final_mass, " kg")
+println("Final SMA: ", get_sma(sol.final_oe), " km")
 ```
 
 ## Spacecraft Types
@@ -90,18 +91,111 @@ println("Final mass: ", sol.final_mass, " kg")
 ### Constant Thrust
 
 ```julia
-# dry_mass, wet_mass, thrust [N], Isp [s]
-sc = QLawSpacecraft(500.0, 1000.0, 1.0, 3000.0)
+# QLawSpacecraft(dry_mass [kg], wet_mass [kg], thrust [N], Isp [s])
+sc = QLawSpacecraft(500.0, 1000.0, 1.445, 1850.0)
 ```
 
 ### Solar Electric Propulsion (SEP)
 
-Thrust scales with solar distance as (r_ref/r)²:
+Thrust scales with solar distance as (r\_ref / r)²:
 
 ```julia
-# dry_mass, wet_mass, thrust_ref [N], Isp [s], r_ref [km]
+# SEPQLawSpacecraft(dry_mass [kg], wet_mass [kg], thrust_ref [N], Isp [s], r_ref [km])
 AU = 1.495978707e8
 sep = SEPQLawSpacecraft(500.0, 1000.0, 0.5, 3000.0, AU)
+```
+
+## Effectivity Types
+
+Effectivity determines when thrusting is beneficial vs when to coast. Selectable via the `effectivity_type` keyword in `QLawParameters`:
+
+### AbsoluteEffectivity (default)
+
+$$\eta_a = \dot{Q}_n / \dot{Q}_{nn}$$
+
+```julia
+params = QLawParameters(; effectivity_type = AbsoluteEffectivity())
+```
+
+### RelativeEffectivity
+
+$$\eta_r = (\dot{Q}_n - \dot{Q}_{nx}) / (\dot{Q}_{nn} - \dot{Q}_{nx})$$
+
+```julia
+params = QLawParameters(; effectivity_type = RelativeEffectivity())
+```
+
+## Convergence Criteria
+
+Two stopping criteria are available, selectable via the `convergence_criterion` keyword in `QLawParameters`:
+
+### SummedErrorConvergence (default)
+
+Converges when the weighted sum of normalized orbital element errors drops below a tolerance:
+
+$$\sum_{i} \frac{|œ_i - œ_{T,i}|}{|œ_{T,i}|} < \text{tol}$$
+
+```julia
+params = QLawParameters(; convergence_criterion = SummedErrorConvergence(0.05))
+```
+
+### VargaConvergence
+
+Based on the Q-function value (Varga Eq. 35). The criterion normalizes Q by the target orbit's characteristic timescale squared (a\_T³/μ) to make it independent of physical units:
+
+$$Q \cdot \frac{\mu}{a_T^3} < R_c \cdot \sqrt{\sum W_{œ}}$$
+
+With the default `Rc=1.0` (the paper's nominal value), this converges when the orbit is within approximately 0.5--1% of the target elements.
+
+```julia
+params = QLawParameters(; convergence_criterion = VargaConvergence(1.0))
+```
+
+## Weight Optimization
+
+Q-Law performance depends heavily on the choice of weights. QLaw.jl is compatible with Optimization.jl for automated weight tuning.
+
+### Global Search with BlackBoxOptim
+
+```julia
+using Optimization, OptimizationBBO
+
+function objective(x, p)
+    weights = QLawWeights(x[1], x[2], x[3], x[4], x[5])
+    params  = QLawParameters(; η_threshold = x[6], ...)
+    prob    = qlaw_problem(oe0, oeT, tspan, μ, spacecraft; weights = weights, qlaw_params = params)
+    sol     = solve(prob)
+    return sol.converged ? sol.elapsed_time / tspan[2] : 1e10
+end
+
+lb = [0.01, 0.01, 0.01, 0.01, 0.01, -0.01]
+ub = [1.0,  1.0,  1.0,  1.0,  1.0,   0.3]
+x0 = (lb .+ ub) ./ 2
+
+opt_f = OptimizationFunction(objective)
+opt_prob = OptimizationProblem(opt_f, x0, p; lb = lb, ub = ub)
+sol = Optimization.solve(opt_prob, BBO_adaptive_de_rand_1_bin_radiuslimited(); maxiters = 500)
+```
+
+See `examples/weight_optimization.jl` for a complete example including DOE-seeded local refinement with SAMIN.
+
+## Examples
+
+The `examples/` directory contains runnable scripts:
+
+| Example | Description |
+|---------|-------------|
+| `leo_to_geo.jl` | LEO-to-GEO transfer with J2 + Moon + Sun perturbations, plotting |
+| `weight_optimization.jl` | BBO global search and DOE + SAMIN local refinement for weight tuning |
+| `convergence_criteria_comparison.jl` | Side-by-side comparison of `SummedErrorConvergence` vs `VargaConvergence` |
+
+To run an example:
+
+```julia
+using Pkg
+Pkg.activate("examples")
+Pkg.instantiate()
+include("examples/leo_to_geo.jl")
 ```
 
 ## Q-Law Theory
@@ -114,14 +208,14 @@ $$Q = (1 + W_P P) \sum_{œ} W_{œ} S_{œ} \left( \frac{œ - œ_T}{\dot{œ}_{xx}}
 
 where:
 - $W_{œ}$ are weights for each orbital element
-- $S_{œ}$ is a scaling function to prevent divergence
+- $S_{œ}$ is a scaling function to prevent divergence (Varga Eq. 8)
 - $\dot{œ}_{xx}$ is the maximum rate of change over all thrust directions
 - $P$ is a penalty function for minimum periapsis constraint
 - $W_P$ is the penalty weight
 
 ### Optimal Thrust Direction
 
-The optimal thrust angles (α*, β*) are found by minimizing $\dot{Q}$:
+The optimal thrust angles (α\*, β\*) are found by minimizing $\dot{Q}$:
 
 $$\dot{Q} = D_1 \cos\beta \cos\alpha + D_2 \cos\beta \sin\alpha + D_3 \sin\beta$$
 
@@ -136,45 +230,9 @@ Effectivity determines when thrusting is beneficial:
 
 where $\dot{Q}_{nn}$ and $\dot{Q}_{nx}$ are the minimum and maximum $\dot{Q}$ over all true longitudes.
 
-### AD-Compatible Activation
+A smooth activation function is used for AD compatibility:
 
-For automatic differentiation compatibility, the effectivity threshold uses a smooth activation function:
-
-$$\text{activation} = \frac{1}{2}\left(1 + \tanh\frac{\eta - \eta_{tr}}{\mu}\right)$$
-
-## API Reference
-
-### Types
-
-| Type | Description |
-|------|-------------|
-| `QLawSpacecraft` | Constant thrust spacecraft |
-| `SEPQLawSpacecraft` | Solar electric propulsion spacecraft |
-| `QLawWeights` | Weights for each orbital element |
-| `QLawParameters` | Algorithm parameters |
-| `QLawProblem` | Problem definition |
-| `QLawSolution` | Solution container |
-
-### Core Functions
-
-| Function | Description |
-|----------|-------------|
-| `qlaw_problem(oe0, oeT, tspan, μ, sc; ...)` | Create a Q-Law problem |
-| `solve(problem; ...)` | Solve the transfer |
-| `remake(problem; ...)` | Create modified problem |
-| `compute_Q(oe, oeT, weights, μ, F_max, Wp, rp_min)` | Compute Lyapunov function |
-| `compute_thrust_direction(oe, oeT, weights, μ, ...)` | Get optimal (α*, β*) |
-| `compute_effectivity(oe, oeT, weights, μ, ...)` | Compute effectivity |
-| `equinoctial_gve_partials(oe, μ)` | GVE A-matrix |
-
-### Spacecraft Functions
-
-| Function | Description |
-|----------|-------------|
-| `mass(sc)` | Total initial mass [kg] |
-| `exhaust_velocity(sc)` | Exhaust velocity [km/s] |
-| `max_thrust(sc, r)` | Maximum thrust at distance r [N] |
-| `max_thrust_acceleration(sc, m, r)` | Max acceleration [km/s²] |
+$$\text{activation} = \frac{1}{2}\left(1 + \tanh\frac{\eta - \eta_\text{th}}{\mu}\right)$$
 
 ## References
 
@@ -200,4 +258,4 @@ MIT License - see [LICENSE](LICENSE) for details.
 
 ## Acknowledgments
 
-This implementation is based on the Q-Law formulation by Petropoulos with enhancements from Varga & Perez (equinoctial elements with semi-major axis) and Steffen, Falck & Faller (automatic differentiation approach).
+This implementation is based on the Q-Law formulation by Petropoulos with enhancements from Varga & Perez (equinoctial elements with semi-major axis, scaling, J2/eclipse effects) and Steffen, Falck & Faller (automatic differentiation approach).

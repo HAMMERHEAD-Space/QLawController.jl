@@ -6,6 +6,7 @@ export QLawSpacecraft, SEPQLawSpacecraft
 export QLawWeights
 export QLawParameters
 export AbstractConvergenceCriterion, SummedErrorConvergence, VargaConvergence
+export AbstractEffectivityType, AbsoluteEffectivity, RelativeEffectivity
 export QLawProblem
 export QLawSolution
 export qlaw_problem
@@ -113,6 +114,27 @@ QLawWeights() = QLawWeights(1.0, 1.0, 1.0, 1.0, 1.0)
 # =============================================================================
 
 """
+    AbstractEffectivityType
+
+Abstract type for effectivity computation method.
+"""
+abstract type AbstractEffectivityType end
+
+"""
+    AbsoluteEffectivity
+
+Absolute effectivity: ηa = Q̇n / Q̇nn (Eq. 29).
+"""
+struct AbsoluteEffectivity <: AbstractEffectivityType end
+
+"""
+    RelativeEffectivity
+
+Relative effectivity: ηr = (Q̇n - Q̇nx) / (Q̇nn - Q̇nx) (Eq. 30).
+"""
+struct RelativeEffectivity <: AbstractEffectivityType end
+
+"""
     AbstractConvergenceCriterion
 
 Abstract type for Q-Law convergence criteria.
@@ -164,20 +186,20 @@ Parameters for Q-Law control algorithm.
 - `η_threshold`: Effectivity threshold for coasting (paper default: -0.01)
 - `η_smoothness`: Smoothness parameter for activation function (μ in paper)
 - `Θrot`: Frame rotation angle about Z-axis [rad] (Varga optimization variable)
-- `effectivity_type::Symbol`: :absolute or :relative
+- `effectivity_type`: Effectivity computation method (`AbsoluteEffectivity()` or `RelativeEffectivity()`)
 - `n_search_points::Int`: Number of points for Q̇ search over true longitude
 - `m_scaling::Float64`: Varga Eq. 8 scaling parameter m
 - `n_scaling::Float64`: Varga Eq. 8 scaling exponent n
 - `r_scaling::Float64`: Varga Eq. 8 scaling root r
 - `convergence_criterion`: Convergence criterion (SummedErrorConvergence or VargaConvergence)
 """
-struct QLawParameters{Tw<:Number,Tr<:Number,Tt<:Number,Ts<:Number,Tθ<:Number,CC<:AbstractConvergenceCriterion}
+struct QLawParameters{Tw<:Number,Tr<:Number,Tt<:Number,Ts<:Number,Tθ<:Number,ET<:AbstractEffectivityType,CC<:AbstractConvergenceCriterion}
     Wp::Tw
     rp_min::Tr
     η_threshold::Tt
     η_smoothness::Ts
     Θrot::Tθ
-    effectivity_type::Symbol
+    effectivity_type::ET
     n_search_points::Int
     m_scaling::Float64
     n_scaling::Float64
@@ -191,7 +213,7 @@ function QLawParameters(;
     η_threshold::Number=-0.01,  # Paper: -0.01 for constant thrust (avoids activation disruption near η≈0)
     η_smoothness::Number=1e-4,
     Θrot::Number=0.0,  # Frame rotation angle [rad] (Varga optimization variable)
-    effectivity_type::Symbol=:absolute,
+    effectivity_type::AbstractEffectivityType=AbsoluteEffectivity(),
     n_search_points::Int=50,
     m_scaling::Float64=1.0,  # Varga Eq. 8: scaling parameter m
     n_scaling::Float64=4.0,  # Varga Eq. 8: scaling exponent n

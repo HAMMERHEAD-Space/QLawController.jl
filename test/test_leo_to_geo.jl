@@ -108,7 +108,7 @@
         F_max = max_thrust_acceleration(sc, m0, a0)
         
         η_abs, Qdot_n, Qdot_nn, Qdot_nx = compute_effectivity(
-            oe0, oeT, weights, μ, F_max, 1.0, 6378.0, 50, :absolute
+            oe0, oeT, weights, μ, F_max, 1.0, 6378.0, 50, AbsoluteEffectivity()
         )
         
         # Verify η_absolute = Qdot_n / Qdot_nn
@@ -120,7 +120,7 @@
         
         # Relative effectivity formula
         η_rel, _, Qdot_nn_r, Qdot_nx_r = compute_effectivity(
-            oe0, oeT, weights, μ, F_max, 1.0, 6378.0, 50, :relative
+            oe0, oeT, weights, μ, F_max, 1.0, 6378.0, 50, RelativeEffectivity()
         )
         
         @test η_rel ≈ (Qdot_n - Qdot_nx_r) / (Qdot_nn_r - Qdot_nx_r) rtol=1e-10

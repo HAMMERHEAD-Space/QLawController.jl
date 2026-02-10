@@ -115,7 +115,7 @@ function objective(x, p)
         rp_min = rp_min,
         η_threshold = x[6],
         η_smoothness = η_smoothness,
-        effectivity_type = :absolute,
+        effectivity_type = AbsoluteEffectivity(),
         n_search_points = 50
     )
     
@@ -147,7 +147,7 @@ function objective_mass(x, p)
         rp_min = rp_min,
         η_threshold = x[6],
         η_smoothness = η_smoothness,
-        effectivity_type = :absolute,
+        effectivity_type = AbsoluteEffectivity(),
         n_search_points = 50
     )
     
@@ -211,7 +211,7 @@ println("  Objective value: $(round(sol_bbo.objective, digits=4))")
 # Verify result
 weights_bbo = QLawWeights(sol_bbo.u[1], sol_bbo.u[2], sol_bbo.u[3], sol_bbo.u[4], sol_bbo.u[5])
 params_bbo = QLawParameters(; Wp=Wp, rp_min=rp_min, η_threshold=sol_bbo.u[6], 
-                             η_smoothness=η_smoothness, effectivity_type=:absolute, n_search_points=50)
+                             η_smoothness=η_smoothness, effectivity_type=AbsoluteEffectivity(), n_search_points=50)
 prob_bbo = qlaw_problem(oe0, oeT, tspan, μ, spacecraft; 
                         weights=weights_bbo, qlaw_params=params_bbo,
                         dynamics_model=dynamics_model, sun_model=sun_model, JD0=JD0)
@@ -249,7 +249,7 @@ for (name, weights, ηth) in paper_results
         rp_min = rp_min,
         η_threshold = ηth,
         η_smoothness = η_smoothness,
-        effectivity_type = :absolute,
+        effectivity_type = AbsoluteEffectivity(),
         n_search_points = 50
     )
     
@@ -329,7 +329,7 @@ println("  Objective value: $(round(sol_refined.objective, digits=4))")
 # Verify result
 weights_refined = QLawWeights(sol_refined.u[1], sol_refined.u[2], sol_refined.u[3], sol_refined.u[4], sol_refined.u[5])
 params_refined = QLawParameters(; Wp=Wp, rp_min=rp_min, η_threshold=sol_refined.u[6], 
-                                 η_smoothness=η_smoothness, effectivity_type=:absolute, n_search_points=50)
+                                 η_smoothness=η_smoothness, effectivity_type=AbsoluteEffectivity(), n_search_points=50)
 prob_refined = qlaw_problem(oe0, oeT, tspan, μ, spacecraft; 
                             weights=weights_refined, qlaw_params=params_refined,
                             dynamics_model=dynamics_model, sun_model=sun_model, JD0=JD0)

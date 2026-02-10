@@ -539,25 +539,23 @@ end
 # =============================================================================
 
 """
-    compute_effectivity(oe::ModEq, oeT::ModEq, weights::QLawWeights,
-                        μ::Number, F_max::Number, Wp::Number, rp_min::Number,
-                        n_points::Int=50, type::Symbol=:absolute)
+    compute_effectivity(oe, oeT, weights, μ, F_max, Wp, rp_min, n_points, eff_type)
 
 Compute the effectivity η.
 
 # Arguments
-- `type`: :absolute (ηa) or :relative (ηr)
+- `eff_type`: `AbsoluteEffectivity()` or `RelativeEffectivity()`
 - `n_points`: Number of points to search over true longitude
 
 # Returns
 - `η`: Effectivity value
 - `Qdot_n`: Q̇ at current position
 - `Qdot_nn`: Minimum Q̇ over all true longitudes
-- `Qdot_nx`: Maximum Q̇ over all true longitudes (only for relative)
+- `Qdot_nx`: Maximum Q̇ over all true longitudes
 """
 function compute_effectivity(oe::ModEq{T1}, oeT::ModEq{T2}, weights::QLawWeights{T3},
                               μ::Number, F_max::Number, Wp::Number, rp_min::Number,
-                              n_points::Int=50, type::Symbol=:absolute;
+                              n_points::Int, eff_type::AbstractEffectivityType;
                               m_scaling::Number=1.0, n_scaling::Number=4.0,
                               r_scaling::Number=2.0) where {T1<:Number, T2<:Number, T3<:Number}
     
@@ -582,17 +580,20 @@ function compute_effectivity(oe::ModEq{T1}, oeT::ModEq{T2}, weights::QLawWeights
         Qdot_nx = max(Qdot_nx, Qdot_test)
     end
     
-    # Compute effectivity
-    if type == :absolute
-        # ηa = Q̇n / Q̇nn (Eq. 29)
-        η = Qdot_nn ≈ zero(T) ? one(T) : Qdot_n / Qdot_nn
-    else
-        # ηr = (Q̇n - Q̇nx) / (Q̇nn - Q̇nx) (Eq. 30)
-        denom = Qdot_nn - Qdot_nx
-        η = abs(denom) < eps(T) ? one(T) : (Qdot_n - Qdot_nx) / denom
-    end
+    η = _compute_eta(eff_type, Qdot_n, Qdot_nn, Qdot_nx, T)
     
     return (η, Qdot_n, Qdot_nn, Qdot_nx)
+end
+
+# Absolute effectivity: ηa = Q̇n / Q̇nn (Eq. 29)
+function _compute_eta(::AbsoluteEffectivity, Qdot_n, Qdot_nn, Qdot_nx, ::Type{T}) where T
+    return Qdot_nn ≈ zero(T) ? one(T) : Qdot_n / Qdot_nn
+end
+
+# Relative effectivity: ηr = (Q̇n - Q̇nx) / (Q̇nn - Q̇nx) (Eq. 30)
+function _compute_eta(::RelativeEffectivity, Qdot_n, Qdot_nn, Qdot_nx, ::Type{T}) where T
+    denom = Qdot_nn - Qdot_nx
+    return abs(denom) < eps(T) ? one(T) : (Qdot_n - Qdot_nx) / denom
 end
 
 # Convenience: dispatch using QLawParameters
