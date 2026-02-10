@@ -1,10 +1,21 @@
 module QLaw
 
 using AstroCoords: AstroCoords, ModEq, Keplerian, Cartesian, params
-using AstroForceModels: AstroForceModels, shadow_model, Conical, Cylindrical, No_Shadow, 
-                        ShadowModelType, build_dynamics_model, acceleration,
-                        KeplerianGravityAstroModel, CentralBodyDynamicsModel, 
-                        AbstractDynamicsModel, ThirdBodyModel, SunBody, Position
+using AstroForceModels:
+    AstroForceModels,
+    shadow_model,
+    Conical,
+    Cylindrical,
+    No_Shadow,
+    ShadowModelType,
+    build_dynamics_model,
+    acceleration,
+    KeplerianGravityAstroModel,
+    CentralBodyDynamicsModel,
+    AbstractDynamicsModel,
+    ThirdBodyModel,
+    SunBody,
+    Position
 using AstroPropagators: AstroPropagators, RTN_frame
 using ComponentArrays
 using ForwardDiff

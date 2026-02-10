@@ -107,9 +107,15 @@ weights_ga = QLawWeights(0.0902, 0.8902, 0.9137, 0.9686, 0.9882)
 weights_default = QLawWeights()
 
 println("Q-Law Weights (Table 3 - with effectivity optimization):")
-println("  DOE:    Wa=$(weights_doe.Wa), Wf=$(weights_doe.Wf), Wg=$(weights_doe.Wg), Wh=$(weights_doe.Wh), Wk=$(weights_doe.Wk), ηth=$(ηth_doe)")
-println("  IPOPT:  Wa=$(weights_ipopt.Wa), Wf=$(weights_ipopt.Wf), Wg=$(weights_ipopt.Wg), Wh=$(weights_ipopt.Wh), Wk=$(weights_ipopt.Wk), ηth=$(ηth_ipopt)")
-println("  GA:     Wa=$(weights_ga.Wa), Wf=$(weights_ga.Wf), Wg=$(weights_ga.Wg), Wh=$(weights_ga.Wh), Wk=$(weights_ga.Wk), ηth=$(ηth_ga)")
+println(
+    "  DOE:    Wa=$(weights_doe.Wa), Wf=$(weights_doe.Wf), Wg=$(weights_doe.Wg), Wh=$(weights_doe.Wh), Wk=$(weights_doe.Wk), ηth=$(ηth_doe)",
+)
+println(
+    "  IPOPT:  Wa=$(weights_ipopt.Wa), Wf=$(weights_ipopt.Wf), Wg=$(weights_ipopt.Wg), Wh=$(weights_ipopt.Wh), Wk=$(weights_ipopt.Wk), ηth=$(ηth_ipopt)",
+)
+println(
+    "  GA:     Wa=$(weights_ga.Wa), Wf=$(weights_ga.Wf), Wg=$(weights_ga.Wg), Wh=$(weights_ga.Wh), Wk=$(weights_ga.Wk), ηth=$(ηth_ga)",
+)
 println()
 
 # =============================================================================
@@ -125,7 +131,7 @@ params = QLawParameters(;
     η_threshold = ηth_doe,       # Effectivity threshold from Table 3 DOE
     η_smoothness = 1e-4,         # Activation smoothness
     effectivity_type = AbsoluteEffectivity(),
-    n_search_points = 50
+    n_search_points = 50,
 )
 
 println("Q-Law Parameters:")
@@ -160,12 +166,12 @@ gravity_model = GravityHarmonicsAstroModel(;
     gravity_model = gravity_coeffs,
     eop_data = eop_data,
     degree = 2,   # J2 (degree 2)
-    order = 0     # Zonal only (order 0)
+    order = 0,     # Zonal only (order 0)
 )
 
 # Third body models (Moon and Sun)
-moon_model = ThirdBodyModel(; body=MoonBody(), eop_data=eop_data)
-sun_model = ThirdBodyModel(; body=SunBody(), eop_data=eop_data)
+moon_model = ThirdBodyModel(; body = MoonBody(), eop_data = eop_data)
+sun_model = ThirdBodyModel(; body = SunBody(), eop_data = eop_data)
 
 # Combined dynamics model: central body gravity (J2) + Moon + Sun third body
 dynamics_model = CentralBodyDynamicsModel(gravity_model, (moon_model, sun_model))
@@ -182,12 +188,18 @@ println()
 # =============================================================================
 
 println("Creating Q-Law problem with DOE-optimized weights...")
-prob = qlaw_problem(oe0, oeT, tspan, μ, spacecraft;
-                    weights = weights_doe,
-                    qlaw_params = params,
-                    dynamics_model = dynamics_model,
-                    sun_model = sun_model,
-                    JD0 = JD0)
+prob = qlaw_problem(
+    oe0,
+    oeT,
+    tspan,
+    μ,
+    spacecraft;
+    weights = weights_doe,
+    qlaw_params = params,
+    dynamics_model = dynamics_model,
+    sun_model = sun_model,
+    JD0 = JD0,
+)
 
 println("Initial orbit:")
 println("  Semi-major axis: $(QLaw.get_sma(prob.oe0)) km")
@@ -236,7 +248,9 @@ println()
 println("Final Orbital Elements:")
 println("  Semi-major axis: $(QLaw.get_sma(sol.final_oe)) km (target: $(aT) km)")
 println("  Eccentricity: $(sqrt(sol.final_oe.f^2 + sol.final_oe.g^2)) (target: $(eT))")
-println("  Inclination: $(rad2deg(2*atan(sqrt(sol.final_oe.h^2 + sol.final_oe.k^2)))) deg (target: $(rad2deg(iT)) deg)")
+println(
+    "  Inclination: $(rad2deg(2*atan(sqrt(sol.final_oe.h^2 + sol.final_oe.k^2)))) deg (target: $(rad2deg(iT)) deg)",
+)
 
 # =============================================================================
 # Plotting (Matching Paper Figures 9, 10, 11)
@@ -257,7 +271,7 @@ println("=" ^ 60)
 ν_wrapped = [u[6] - atan(u[3], u[2]) for u in states]
 ν_cumulative = zeros(length(ν_wrapped))
 ν_cumulative[1] = ν_wrapped[1]
-for i in 2:length(ν_wrapped)
+for i = 2:length(ν_wrapped)
     dν = ν_wrapped[i] - ν_wrapped[i-1]
     # Handle wraparound
     if dν < -π
@@ -290,26 +304,26 @@ for (i, u) in enumerate(states)
     m_i = u[7]
     r_i = QLaw.compute_radius(oe_i)
     t_i = sol.trajectory.t[i]  # Time in seconds
-    
+
     # Maximum thrust acceleration at this state [km/s²]
     F_max_accel = max_thrust_acceleration(spacecraft, m_i, r_i)
-    
+
     # Optimal thrust direction (uses params for Wp, rp_min, scaling)
-    α_opt, β_opt, _ = QLaw.compute_thrust_direction(oe_i, oeT, weights_doe, μ, 
-                                                     F_max_accel, params)
-    
+    α_opt, β_opt, _ =
+        QLaw.compute_thrust_direction(oe_i, oeT, weights_doe, μ, F_max_accel, params)
+
     # Compute effectivity to get actual throttle (uses params for all settings)
     η, _, _, _ = QLaw.compute_effectivity(oe_i, oeT, weights_doe, μ, F_max_accel, params)
     activation = QLaw.effectivity_activation(η, params.η_threshold, params.η_smoothness)
-    
+
     # Compute sunlight fraction (eclipse)
     JD_i = JD0 + t_i / 86400.0
     sun_pos = sun_model(JD_i, Position())
     γ = QLaw.compute_sunlight_fraction(oe_i, μ, sun_pos, shadow_model)
-    
+
     # Total throttle = effectivity * sunlight
     throttle = activation * γ
-    
+
     push!(α_history, α_opt)
     push!(β_history, β_opt)
     push!(thrust_accel_history, throttle * F_max_accel * 1e6)  # mm/s² (actual thrust)
@@ -335,25 +349,41 @@ end
 # =============================================================================
 println("Generating Figure 9: States...")
 
-p_a = plot(t, a_history ./ 1000, 
-           ylabel="a [×10³ km]", label=false, linewidth=1, color=:blue)
-hline!([aT_val / 1000], linestyle=:dash, color=:red, linewidth=2, label=false)
+p_a = plot(
+    t,
+    a_history ./ 1000,
+    ylabel = "a [×10³ km]",
+    label = false,
+    linewidth = 1,
+    color = :blue,
+)
+hline!([aT_val / 1000], linestyle = :dash, color = :red, linewidth = 2, label = false)
 
-p_e = plot(t, e_history, 
-           ylabel="e [-]", label=false, linewidth=1, color=:blue)
-hline!([eT_val], linestyle=:dash, color=:red, linewidth=2, label=false)
+p_e = plot(t, e_history, ylabel = "e [-]", label = false, linewidth = 1, color = :blue)
+hline!([eT_val], linestyle = :dash, color = :red, linewidth = 2, label = false)
 
-p_i = plot(t, i_history, 
-           ylabel="i [deg]", label=false, linewidth=1, color=:blue)
-hline!([iT_val], linestyle=:dash, color=:red, linewidth=2, label=false)
+p_i = plot(t, i_history, ylabel = "i [deg]", label = false, linewidth = 1, color = :blue)
+hline!([iT_val], linestyle = :dash, color = :red, linewidth = 2, label = false)
 
-p_nu = plot(t, ν_revs, 
-            xlabel="Time [days]", ylabel="TA [rev]", label=false, 
-            linewidth=1, color=:blue)
+p_nu = plot(
+    t,
+    ν_revs,
+    xlabel = "Time [days]",
+    ylabel = "TA [rev]",
+    label = false,
+    linewidth = 1,
+    color = :blue,
+)
 
-fig9 = plot(p_a, p_e, p_i, p_nu, 
-            layout=(2, 2), size=(1000, 700),
-            plot_title="Figure 9: States (Classical Elements)")
+fig9 = plot(
+    p_a,
+    p_e,
+    p_i,
+    p_nu,
+    layout = (2, 2),
+    size = (1000, 700),
+    plot_title = "Figure 9: States (Classical Elements)",
+)
 
 savefig(fig9, "figure9_states.png")
 println("  Saved: figure9_states.png")
@@ -365,26 +395,53 @@ println("  Saved: figure9_states.png")
 # =============================================================================
 println("Generating Figure 10: Controls...")
 
-p_thrust = plot(t, thrust_accel_history,
-                ylabel="Thrust Accel\n[mm/s²]", label=false,
-                linewidth=0.5, color=:blue)
+p_thrust = plot(
+    t,
+    thrust_accel_history,
+    ylabel = "Thrust Accel\n[mm/s²]",
+    label = false,
+    linewidth = 0.5,
+    color = :blue,
+)
 
-p_alpha = plot(t, rad2deg.(α_history),
-               ylabel="α* [deg]", label=false,
-               linewidth=0.5, color=:blue)
+p_alpha = plot(
+    t,
+    rad2deg.(α_history),
+    ylabel = "α* [deg]",
+    label = false,
+    linewidth = 0.5,
+    color = :blue,
+)
 
-p_beta = plot(t, rad2deg.(β_history),
-              ylabel="β* [deg]", label=false,
-              linewidth=0.5, color=:blue)
+p_beta = plot(
+    t,
+    rad2deg.(β_history),
+    ylabel = "β* [deg]",
+    label = false,
+    linewidth = 0.5,
+    color = :blue,
+)
 
-p_eta = plot(t, effectivity_history,
-             xlabel="Time [days]", ylabel="η [-]", label=false,
-             linewidth=0.5, color=:blue)
-hline!([params.η_threshold], linestyle=:dash, color=:red, linewidth=1, label="ηₜₕ")
+p_eta = plot(
+    t,
+    effectivity_history,
+    xlabel = "Time [days]",
+    ylabel = "η [-]",
+    label = false,
+    linewidth = 0.5,
+    color = :blue,
+)
+hline!([params.η_threshold], linestyle = :dash, color = :red, linewidth = 1, label = "ηₜₕ")
 
-fig10 = plot(p_thrust, p_alpha, p_beta, p_eta,
-             layout=(4, 1), size=(1000, 900),
-             plot_title="Figure 10: Controls of Best DOE Run")
+fig10 = plot(
+    p_thrust,
+    p_alpha,
+    p_beta,
+    p_eta,
+    layout = (4, 1),
+    size = (1000, 900),
+    plot_title = "Figure 10: Controls of Best DOE Run",
+)
 
 savefig(fig10, "figure10_controls.png")
 println("  Saved: figure10_controls.png")
@@ -396,38 +453,70 @@ println("  Saved: figure10_controls.png")
 println("Generating Figure 11: Orbit Shape (2D projections)...")
 
 # X-Y plane (equatorial view)
-p_xy = plot(x_history ./ 1000, y_history ./ 1000,
-            xlabel="X [×10³ km]", ylabel="Y [×10³ km]",
-            linewidth=0.3, color=:blue, legend=false,
-            title="X-Y Plane", aspect_ratio=:equal)
-scatter!([x_history[1] / 1000], [y_history[1] / 1000],
-         markersize=4, color=:green, label="Start")
-scatter!([x_history[end] / 1000], [y_history[end] / 1000],
-         markersize=4, color=:red, label="End")
+p_xy = plot(
+    x_history ./ 1000,
+    y_history ./ 1000,
+    xlabel = "X [×10³ km]",
+    ylabel = "Y [×10³ km]",
+    linewidth = 0.3,
+    color = :blue,
+    legend = false,
+    title = "X-Y Plane",
+    aspect_ratio = :equal,
+)
+scatter!(
+    [x_history[1] / 1000],
+    [y_history[1] / 1000],
+    markersize = 4,
+    color = :green,
+    label = "Start",
+)
+scatter!(
+    [x_history[end] / 1000],
+    [y_history[end] / 1000],
+    markersize = 4,
+    color = :red,
+    label = "End",
+)
 
 # Y-Z plane
-p_yz = plot(y_history ./ 1000, z_history ./ 1000,
-            xlabel="Y [×10³ km]", ylabel="Z [×10³ km]",
-            linewidth=0.3, color=:blue, legend=false,
-            title="Y-Z Plane", aspect_ratio=:equal)
-scatter!([y_history[1] / 1000], [z_history[1] / 1000],
-         markersize=4, color=:green)
-scatter!([y_history[end] / 1000], [z_history[end] / 1000],
-         markersize=4, color=:red)
+p_yz = plot(
+    y_history ./ 1000,
+    z_history ./ 1000,
+    xlabel = "Y [×10³ km]",
+    ylabel = "Z [×10³ km]",
+    linewidth = 0.3,
+    color = :blue,
+    legend = false,
+    title = "Y-Z Plane",
+    aspect_ratio = :equal,
+)
+scatter!([y_history[1] / 1000], [z_history[1] / 1000], markersize = 4, color = :green)
+scatter!([y_history[end] / 1000], [z_history[end] / 1000], markersize = 4, color = :red)
 
 # X-Z plane
-p_xz = plot(x_history ./ 1000, z_history ./ 1000,
-            xlabel="X [×10³ km]", ylabel="Z [×10³ km]",
-            linewidth=0.3, color=:blue, legend=false,
-            title="X-Z Plane", aspect_ratio=:equal)
-scatter!([x_history[1] / 1000], [z_history[1] / 1000],
-         markersize=4, color=:green)
-scatter!([x_history[end] / 1000], [z_history[end] / 1000],
-         markersize=4, color=:red)
+p_xz = plot(
+    x_history ./ 1000,
+    z_history ./ 1000,
+    xlabel = "X [×10³ km]",
+    ylabel = "Z [×10³ km]",
+    linewidth = 0.3,
+    color = :blue,
+    legend = false,
+    title = "X-Z Plane",
+    aspect_ratio = :equal,
+)
+scatter!([x_history[1] / 1000], [z_history[1] / 1000], markersize = 4, color = :green)
+scatter!([x_history[end] / 1000], [z_history[end] / 1000], markersize = 4, color = :red)
 
-fig11 = plot(p_xy, p_yz, p_xz,
-             layout=(1, 3), size=(1500, 500),
-             plot_title="Figure 11: Shape of Orbit")
+fig11 = plot(
+    p_xy,
+    p_yz,
+    p_xz,
+    layout = (1, 3),
+    size = (1500, 500),
+    plot_title = "Figure 11: Shape of Orbit",
+)
 
 savefig(fig11, "figure11_orbit_shape.png")
 println("  Saved: figure11_orbit_shape.png")
@@ -437,10 +526,19 @@ println("  Saved: figure11_orbit_shape.png")
 # =============================================================================
 
 # Propellant consumption
-p_mass = plot(t, m_history, xlabel="Time [days]", ylabel="Mass [kg]",
-              label="Spacecraft", linewidth=1.5, color=:blue,
-              title="Propellant Consumption", size=(800, 400), legend=:topright)
-hline!([m_dry], linestyle=:dash, color=:red, linewidth=2, label="Dry mass")
+p_mass = plot(
+    t,
+    m_history,
+    xlabel = "Time [days]",
+    ylabel = "Mass [kg]",
+    label = "Spacecraft",
+    linewidth = 1.5,
+    color = :blue,
+    title = "Propellant Consumption",
+    size = (800, 400),
+    legend = :topright,
+)
+hline!([m_dry], linestyle = :dash, color = :red, linewidth = 2, label = "Dry mass")
 savefig(p_mass, "mass_history.png")
 println("  Saved: mass_history.png")
 
@@ -462,9 +560,11 @@ println("=" ^ 60)
 println("COMPARISON WITH OTHER WEIGHT SETS")
 println("=" ^ 60)
 
-for (name, weights, ηth) in [("Default", weights_default, 0.1),  # Default threshold
-                              ("IPOPT", weights_ipopt, ηth_ipopt), 
-                              ("GA", weights_ga, ηth_ga)]
+for (name, weights, ηth) in [
+    ("Default", weights_default, 0.1),  # Default threshold
+    ("IPOPT", weights_ipopt, ηth_ipopt),
+    ("GA", weights_ga, ηth_ga),
+]
     # Create params with the correct effectivity threshold for each weight set
     params_test = QLawParameters(;
         Wp = 1.0,
@@ -472,28 +572,38 @@ for (name, weights, ηth) in [("Default", weights_default, 0.1),  # Default thre
         η_threshold = ηth,
         η_smoothness = 1e-4,
         effectivity_type = AbsoluteEffectivity(),
-        n_search_points = 50
+        n_search_points = 50,
     )
-    
-    prob_test = qlaw_problem(oe0, oeT, tspan, μ, spacecraft;
-                             weights = weights,
-                             qlaw_params = params_test,
-                             dynamics_model = dynamics_model,
-                             sun_model = sun_model,
-                             JD0 = JD0)
-    
+
+    prob_test = qlaw_problem(
+        oe0,
+        oeT,
+        tspan,
+        μ,
+        spacecraft;
+        weights = weights,
+        qlaw_params = params_test,
+        dynamics_model = dynamics_model,
+        sun_model = sun_model,
+        JD0 = JD0,
+    )
+
     println("\nSolving with $(name) weights (ηth=$(ηth))...")
     @time sol_test = solve(prob_test)
-    
-    println("  $(name): ΔV = $(round(sol_test.Δv_total, digits=3)) km/s, " *
-            "Time = $(round(sol_test.elapsed_time / 86400.0, digits=2)) days, " *
-            "Converged = $(sol_test.converged)")
-    
+
+    println(
+        "  $(name): ΔV = $(round(sol_test.Δv_total, digits=3)) km/s, " *
+        "Time = $(round(sol_test.elapsed_time / 86400.0, digits=2)) days, " *
+        "Converged = $(sol_test.converged)",
+    )
+
     # Print final orbital elements
     final_a = QLaw.get_sma(sol_test.final_oe)
     final_e = sqrt(sol_test.final_oe.f^2 + sol_test.final_oe.g^2)
     final_i = rad2deg(2*atan(sqrt(sol_test.final_oe.h^2 + sol_test.final_oe.k^2)))
-    println("  Final OE: a=$(round(final_a, digits=1)) km (target: $(aT)), " *
-            "e=$(round(final_e, digits=4)) (target: $(eT)), " *
-            "i=$(round(final_i, digits=2))° (target: $(rad2deg(iT))°)")
+    println(
+        "  Final OE: a=$(round(final_a, digits=1)) km (target: $(aT)), " *
+        "e=$(round(final_e, digits=4)) (target: $(eT)), " *
+        "i=$(round(final_i, digits=2))° (target: $(rad2deg(iT))°)",
+    )
 end

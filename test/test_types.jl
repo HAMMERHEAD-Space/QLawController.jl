@@ -13,12 +13,12 @@
         @test exhaust_velocity(sc) ≈ 3000.0 * 9.80665e-3
         @test max_thrust(sc, 7000.0) == 0.5
         @test max_thrust(sc, 42000.0) == 0.5  # Constant thrust
-        
+
         # Max acceleration
         a_max = max_thrust_acceleration(sc, 1000.0, 7000.0)
         @test a_max ≈ 0.5 / 1000.0 * 1e-3  # km/s²
     end
-    
+
     @testset "SEPQLawSpacecraft" begin
         AU = 1.495978707e8
         sep = SEPQLawSpacecraft(500.0, 1000.0, 0.5, 3000.0, AU)
@@ -37,7 +37,7 @@ end
     @test w.Wg == 1.0
     @test w.Wh == 1.0
     @test w.Wk == 1.0
-    
+
     # Custom weights
     w2 = QLawWeights(0.5, 0.6, 0.7, 0.8, 0.9)
     @test w2.Wa == 0.5
@@ -45,7 +45,7 @@ end
     @test w2.Wg == 0.7
     @test w2.Wh == 0.8
     @test w2.Wk == 0.9
-    
+
     # Uniform weights
     w3 = QLawWeights(0.5)
     @test w3.Wa == 0.5
@@ -68,25 +68,26 @@ end
     @test params.n_scaling == 4.0
     @test params.r_scaling == 2.0
     @test params.convergence_criterion isa SummedErrorConvergence
-    
-    params2 = QLawParameters(; 
-        η_threshold=0.2, 
-        effectivity_type=RelativeEffectivity(),
-        rp_min=6500.0,
-        Wp=2.0
+
+    params2 = QLawParameters(;
+        η_threshold = 0.2,
+        effectivity_type = RelativeEffectivity(),
+        rp_min = 6500.0,
+        Wp = 2.0,
     )
     @test params2.η_threshold == 0.2
     @test params2.effectivity_type isa RelativeEffectivity
     @test params2.rp_min == 6500.0
     @test params2.Wp == 2.0
-    
+
     # Varga convergence
-    params3 = QLawParameters(; convergence_criterion=VargaConvergence(0.01))
+    params3 = QLawParameters(; convergence_criterion = VargaConvergence(0.01))
     @test params3.convergence_criterion isa VargaConvergence
     @test params3.convergence_criterion.Rc == 0.01
-    
+
     # Custom scaling
-    params4 = QLawParameters(; m_scaling=0.5, n_scaling=2.0, r_scaling=1.0, Θrot=0.1)
+    params4 =
+        QLawParameters(; m_scaling = 0.5, n_scaling = 2.0, r_scaling = 1.0, Θrot = 0.1)
     @test params4.m_scaling == 0.5
     @test params4.n_scaling == 2.0
     @test params4.r_scaling == 1.0

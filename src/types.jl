@@ -49,7 +49,8 @@ Solar Electric Propulsion spacecraft where thrust scales with solar distance.
 - `Isp::Ti`: Specific impulse [s]
 - `r_ref::Tr`: Reference distance (typically 1 AU) [km]
 """
-struct SEPQLawSpacecraft{Td<:Number,Tw<:Number,Tt<:Number,Ti<:Number,Tr<:Number} <: AbstractQLawSpacecraft
+struct SEPQLawSpacecraft{Td<:Number,Tw<:Number,Tt<:Number,Ti<:Number,Tr<:Number} <:
+       AbstractQLawSpacecraft
     dry_mass::Td
     wet_mass::Tw
     thrust_ref::Tt
@@ -193,7 +194,15 @@ Parameters for Q-Law control algorithm.
 - `r_scaling::Float64`: Varga Eq. 8 scaling root r
 - `convergence_criterion`: Convergence criterion (SummedErrorConvergence or VargaConvergence)
 """
-struct QLawParameters{Tw<:Number,Tr<:Number,Tt<:Number,Ts<:Number,Tθ<:Number,ET<:AbstractEffectivityType,CC<:AbstractConvergenceCriterion}
+struct QLawParameters{
+    Tw<:Number,
+    Tr<:Number,
+    Tt<:Number,
+    Ts<:Number,
+    Tθ<:Number,
+    ET<:AbstractEffectivityType,
+    CC<:AbstractConvergenceCriterion,
+}
     Wp::Tw
     rp_min::Tr
     η_threshold::Tt
@@ -208,22 +217,31 @@ struct QLawParameters{Tw<:Number,Tr<:Number,Tt<:Number,Ts<:Number,Tθ<:Number,ET
 end
 
 function QLawParameters(;
-    Wp::Number=1.0,
-    rp_min::Number=6578.0,  # Default: LEO altitude
-    η_threshold::Number=-0.01,  # Paper: -0.01 for constant thrust (avoids activation disruption near η≈0)
-    η_smoothness::Number=1e-4,
-    Θrot::Number=0.0,  # Frame rotation angle [rad] (Varga optimization variable)
-    effectivity_type::AbstractEffectivityType=AbsoluteEffectivity(),
-    n_search_points::Int=50,
-    m_scaling::Float64=1.0,  # Varga Eq. 8: scaling parameter m
-    n_scaling::Float64=4.0,  # Varga Eq. 8: scaling exponent n
-    r_scaling::Float64=2.0,  # Varga Eq. 8: scaling root r
-    convergence_criterion::AbstractConvergenceCriterion=SummedErrorConvergence()
+    Wp::Number = 1.0,
+    rp_min::Number = 6578.0,  # Default: LEO altitude
+    η_threshold::Number = -0.01,  # Paper: -0.01 for constant thrust (avoids activation disruption near η≈0)
+    η_smoothness::Number = 1e-4,
+    Θrot::Number = 0.0,  # Frame rotation angle [rad] (Varga optimization variable)
+    effectivity_type::AbstractEffectivityType = AbsoluteEffectivity(),
+    n_search_points::Int = 50,
+    m_scaling::Float64 = 1.0,  # Varga Eq. 8: scaling parameter m
+    n_scaling::Float64 = 4.0,  # Varga Eq. 8: scaling exponent n
+    r_scaling::Float64 = 2.0,  # Varga Eq. 8: scaling root r
+    convergence_criterion::AbstractConvergenceCriterion = SummedErrorConvergence(),
 )
-    return QLawParameters(Wp, rp_min, η_threshold, η_smoothness, Θrot,
-                          effectivity_type, n_search_points,
-                          m_scaling, n_scaling, r_scaling,
-                          convergence_criterion)
+    return QLawParameters(
+        Wp,
+        rp_min,
+        η_threshold,
+        η_smoothness,
+        Θrot,
+        effectivity_type,
+        n_search_points,
+        m_scaling,
+        n_scaling,
+        r_scaling,
+        convergence_criterion,
+    )
 end
 
 # =============================================================================
@@ -249,7 +267,20 @@ Q-Law transfer problem definition.
 - `shadow_model::ShadowModelType`: Eclipse model
 - `sun_model::SM`: Sun ephemeris model (ThirdBodyModel or nothing)
 """
-struct QLawProblem{OE0<:ModEq,OET<:ModEq,Tm<:Number,Tt0<:Number,Ttf<:Number,Tμ<:Number,Tjd<:Number,SC<:AbstractQLawSpacecraft,W<:QLawWeights,P<:QLawParameters,DM<:AbstractDynamicsModel,SM}
+struct QLawProblem{
+    OE0<:ModEq,
+    OET<:ModEq,
+    Tm<:Number,
+    Tt0<:Number,
+    Ttf<:Number,
+    Tμ<:Number,
+    Tjd<:Number,
+    SC<:AbstractQLawSpacecraft,
+    W<:QLawWeights,
+    P<:QLawParameters,
+    DM<:AbstractDynamicsModel,
+    SM,
+}
     oe0::OE0
     oeT::OET
     m0::Tm
@@ -290,14 +321,15 @@ function qlaw_problem(
     tspan::Tuple,
     μ::Number,
     spacecraft::AbstractQLawSpacecraft;
-    weights::QLawWeights=QLawWeights(),
-    qlaw_params::QLawParameters=QLawParameters(),
-    dynamics_model::AbstractDynamicsModel=CentralBodyDynamicsModel(
-        KeplerianGravityAstroModel(; μ=μ), ()
+    weights::QLawWeights = QLawWeights(),
+    qlaw_params::QLawParameters = QLawParameters(),
+    dynamics_model::AbstractDynamicsModel = CentralBodyDynamicsModel(
+        KeplerianGravityAstroModel(; μ = μ),
+        (),
     ),
-    shadow_model_type::ShadowModelType=Conical(),
-    sun_model::Union{ThirdBodyModel,Nothing}=nothing,
-    JD0::Number=2451545.0
+    shadow_model_type::ShadowModelType = Conical(),
+    sun_model::Union{ThirdBodyModel,Nothing} = nothing,
+    JD0::Number = 2451545.0,
 )
     return QLawProblem(
         oe0,
@@ -311,7 +343,7 @@ function qlaw_problem(
         qlaw_params,
         dynamics_model,
         shadow_model_type,
-        sun_model
+        sun_model,
     )
 end
 
@@ -322,12 +354,12 @@ function qlaw_problem(
     tspan::Tuple,
     μ::Number,
     spacecraft::AbstractQLawSpacecraft;
-    JD0::Number=2451545.0,
-    kwargs...
+    JD0::Number = 2451545.0,
+    kwargs...,
 )
     oe0 = ModEq(koe0, μ)
     oeT = ModEq(koeT, μ)
-    return qlaw_problem(oe0, oeT, tspan, μ, spacecraft; JD0=JD0, kwargs...)
+    return qlaw_problem(oe0, oeT, tspan, μ, spacecraft; JD0 = JD0, kwargs...)
 end
 
 # =============================================================================

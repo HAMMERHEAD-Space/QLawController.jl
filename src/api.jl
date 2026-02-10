@@ -23,25 +23,33 @@ Solve a Q-Law transfer problem.
 # Returns
 `QLawSolution` containing the trajectory and solution metadata.
 """
-function SciMLBase.solve(problem::QLawProblem{OE0,OET,Tm,Tt0,Ttf,Tμ,Tjd,SC,W,P,DM,SM};
-                         abstol::Float64=1e-10,
-                         reltol::Float64=1e-10,
-                         ODE_solver::OrdinaryDiffEqCore.OrdinaryDiffEqAlgorithm=VCABM(),
-                         saveat=nothing,
-                         callback=nothing,
-                         convergence_tol=nothing,
-                         kwargs...) where {OE0,OET,Tm,Tt0,Ttf,Tμ,Tjd,SC,W,P,DM,SM}
-    
+function SciMLBase.solve(
+    problem::QLawProblem{OE0,OET,Tm,Tt0,Ttf,Tμ,Tjd,SC,W,P,DM,SM};
+    abstol::Float64 = 1e-10,
+    reltol::Float64 = 1e-10,
+    ODE_solver::OrdinaryDiffEqCore.OrdinaryDiffEqAlgorithm = VCABM(),
+    saveat = nothing,
+    callback = nothing,
+    convergence_tol = nothing,
+    kwargs...,
+) where {OE0,OET,Tm,Tt0,Ttf,Tμ,Tjd,SC,W,P,DM,SM}
+
     # Promote type to account for ForwardDiff.Dual numbers that may enter
     # through QLawWeights or QLawParameters during gradient-based optimization
-    T = promote_type(Float64, Tm, Tt0, Ttf, Tμ,
-                      typeof(problem.weights.Wa),
-                      typeof(problem.params.Wp),
-                      typeof(problem.params.rp_min),
-                      typeof(problem.params.η_threshold),
-                      typeof(problem.params.η_smoothness),
-                      typeof(problem.params.Θrot))
-    
+    T = promote_type(
+        Float64,
+        Tm,
+        Tt0,
+        Ttf,
+        Tμ,
+        typeof(problem.weights.Wa),
+        typeof(problem.params.Wp),
+        typeof(problem.params.rp_min),
+        typeof(problem.params.η_threshold),
+        typeof(problem.params.η_smoothness),
+        typeof(problem.params.Θrot),
+    )
+
     # Determine effective convergence criterion
     # convergence_tol kwarg overrides params for backward compatibility
     if convergence_tol !== nothing
@@ -49,75 +57,104 @@ function SciMLBase.solve(problem::QLawProblem{OE0,OET,Tm,Tt0,Ttf,Tμ,Tjd,SC,W,P,
     else
         effective_criterion = problem.params.convergence_criterion
     end
-    
+
     # Initial state: [p, f, g, h, k, L, m]
     oe0 = problem.oe0
     u0 = SVector{7,T}(oe0.p, oe0.f, oe0.g, oe0.h, oe0.k, oe0.L, problem.m0)
-    
-    
+
+
     # Parameters
-    ps = ComponentArray(
-        μ = problem.μ,
-        JD = problem.JD0
-    )
-    
+    ps = ComponentArray(μ = problem.μ, JD = problem.JD0)
+
     # Create termination callback for convergence
     function convergence_condition(u, t, integrator)
         oe_current = ModEq{T}(u[1], u[2], u[3], u[4], u[5], u[6])
         m_current = u[7]
         r_current = compute_radius(oe_current)
         F_max_current = max_thrust_acceleration(problem.spacecraft, m_current, r_current)
-        return check_convergence(oe_current, problem.oeT, problem.weights,
-                                  problem.μ, F_max_current, problem.params,
-                                  effective_criterion)
+        return check_convergence(
+            oe_current,
+            problem.oeT,
+            problem.weights,
+            problem.μ,
+            F_max_current,
+            problem.params,
+            effective_criterion,
+        )
     end
-    
+
     convergence_affect!(integrator) = terminate!(integrator)
     convergence_cb = DiscreteCallback(convergence_condition, convergence_affect!)
-    
+
     # Combine callbacks
     if callback === nothing
         full_callback = convergence_cb
     else
         full_callback = CallbackSet(convergence_cb, callback)
     end
-    
+
     # Create ODE function (non-mutating for StaticArrays compatibility)
     eom(u, p, t) = qlaw_eom(u, p, t, problem)
-    
+
     # Create ODE problem
     ode_prob = ODEProblem(eom, u0, problem.tspan, ps)
-    
+
     # Solve
     if saveat === nothing
-        sol = OrdinaryDiffEqCore.solve(ode_prob, ODE_solver;
-                                        abstol=abstol, reltol=reltol,
-                                        callback=full_callback, kwargs...)
+        sol = OrdinaryDiffEqCore.solve(
+            ode_prob,
+            ODE_solver;
+            abstol = abstol,
+            reltol = reltol,
+            callback = full_callback,
+            kwargs...,
+        )
     else
-        sol = OrdinaryDiffEqCore.solve(ode_prob, ODE_solver;
-                                        abstol=abstol, reltol=reltol,
-                                        saveat=saveat, callback=full_callback, kwargs...)
+        sol = OrdinaryDiffEqCore.solve(
+            ode_prob,
+            ODE_solver;
+            abstol = abstol,
+            reltol = reltol,
+            saveat = saveat,
+            callback = full_callback,
+            kwargs...,
+        )
     end
-    
+
     # Extract final state
     u_final = sol.u[end]
-    final_oe = ModEq{T}(u_final[1], u_final[2], u_final[3], u_final[4], u_final[5], u_final[6])
+    final_oe =
+        ModEq{T}(u_final[1], u_final[2], u_final[3], u_final[4], u_final[5], u_final[6])
     final_mass = u_final[7]
-    
+
     # Check convergence using same criterion
     r_final = compute_radius(final_oe)
     F_max_final = max_thrust_acceleration(problem.spacecraft, final_mass, r_final)
-    converged = check_convergence(final_oe, problem.oeT, problem.weights,
-                                   problem.μ, F_max_final, problem.params,
-                                   effective_criterion)
-    
+    converged = check_convergence(
+        final_oe,
+        problem.oeT,
+        problem.weights,
+        problem.μ,
+        F_max_final,
+        problem.params,
+        effective_criterion,
+    )
+
     # Compute total ΔV
     Δv_total = compute_delta_v(problem.m0, final_mass, problem.spacecraft)
-    
+
     # Elapsed time
     elapsed_time = sol.t[end] - sol.t[1]
-    
-    return QLawSolution(problem, sol, converged, Δv_total, final_mass, final_oe, elapsed_time)
+
+    return QLawSolution(
+        problem,
+        sol,
+        converged,
+        Δv_total,
+        final_mass,
+        final_oe,
+        elapsed_time,
+    )
 end
 
 """
@@ -156,20 +193,22 @@ Any field of QLawProblem can be modified:
 - `shadow_model_type`: New shadow model type
 - `sun_model`: New sun model
 """
-function SciMLBase.remake(problem::QLawProblem;
-                          oe0::Union{ModEq,Nothing}=nothing,
-                          oeT::Union{ModEq,Nothing}=nothing,
-                          m0::Union{Number,Nothing}=nothing,
-                          tspan::Union{Tuple,Nothing}=nothing,
-                          μ::Union{Number,Nothing}=nothing,
-                          JD0::Union{Number,Nothing}=nothing,
-                          spacecraft::Union{AbstractQLawSpacecraft,Nothing}=nothing,
-                          weights::Union{QLawWeights,Nothing}=nothing,
-                          qlaw_params::Union{QLawParameters,Nothing}=nothing,
-                          dynamics_model::Union{AbstractDynamicsModel,Nothing}=nothing,
-                          shadow_model_type::Union{ShadowModelType,Nothing}=nothing,
-                          sun_model=nothing)
-    
+function SciMLBase.remake(
+    problem::QLawProblem;
+    oe0::Union{ModEq,Nothing} = nothing,
+    oeT::Union{ModEq,Nothing} = nothing,
+    m0::Union{Number,Nothing} = nothing,
+    tspan::Union{Tuple,Nothing} = nothing,
+    μ::Union{Number,Nothing} = nothing,
+    JD0::Union{Number,Nothing} = nothing,
+    spacecraft::Union{AbstractQLawSpacecraft,Nothing} = nothing,
+    weights::Union{QLawWeights,Nothing} = nothing,
+    qlaw_params::Union{QLawParameters,Nothing} = nothing,
+    dynamics_model::Union{AbstractDynamicsModel,Nothing} = nothing,
+    shadow_model_type::Union{ShadowModelType,Nothing} = nothing,
+    sun_model = nothing,
+)
+
     new_oe0 = oe0 === nothing ? problem.oe0 : oe0
     new_oeT = oeT === nothing ? problem.oeT : oeT
     new_m0 = m0 === nothing ? problem.m0 : m0
@@ -182,11 +221,20 @@ function SciMLBase.remake(problem::QLawProblem;
     new_dynamics = dynamics_model === nothing ? problem.dynamics_model : dynamics_model
     new_shadow = shadow_model_type === nothing ? problem.shadow_model : shadow_model_type
     new_sun = sun_model === nothing ? problem.sun_model : sun_model
-    
+
     return QLawProblem(
-        new_oe0, new_oeT, new_m0, new_tspan, new_μ, new_JD0,
-        new_spacecraft, new_weights, new_params,
-        new_dynamics, new_shadow, new_sun
+        new_oe0,
+        new_oeT,
+        new_m0,
+        new_tspan,
+        new_μ,
+        new_JD0,
+        new_spacecraft,
+        new_weights,
+        new_params,
+        new_dynamics,
+        new_shadow,
+        new_sun,
     )
 end
 

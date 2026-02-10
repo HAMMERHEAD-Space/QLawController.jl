@@ -70,11 +70,11 @@ gravity_model = GravityHarmonicsAstroModel(;
     gravity_model = gravity_coeffs,
     eop_data = eop_data,
     degree = 2,
-    order = 0
+    order = 0,
 )
 
-moon_model = ThirdBodyModel(; body=MoonBody(), eop_data=eop_data)
-sun_model = ThirdBodyModel(; body=SunBody(), eop_data=eop_data)
+moon_model = ThirdBodyModel(; body = MoonBody(), eop_data = eop_data)
+sun_model = ThirdBodyModel(; body = SunBody(), eop_data = eop_data)
 
 dynamics_model = CentralBodyDynamicsModel(gravity_model, (moon_model, sun_model))
 
@@ -115,15 +115,21 @@ function objective_summed(x, p)
         η_smoothness = η_smoothness,
         effectivity_type = AbsoluteEffectivity(),
         n_search_points = 50,
-        convergence_criterion = SummedErrorConvergence(0.05)
+        convergence_criterion = SummedErrorConvergence(0.05),
     )
 
-    prob = qlaw_problem(oe0, oeT, tspan, μ, spacecraft;
-                        weights = weights,
-                        qlaw_params = params,
-                        dynamics_model = dynamics_model,
-                        sun_model = sun_model,
-                        JD0 = JD0)
+    prob = qlaw_problem(
+        oe0,
+        oeT,
+        tspan,
+        μ,
+        spacecraft;
+        weights = weights,
+        qlaw_params = params,
+        dynamics_model = dynamics_model,
+        sun_model = sun_model,
+        JD0 = JD0,
+    )
 
     sol = solve(prob)
 
@@ -146,15 +152,21 @@ function objective_varga(x, p)
         η_smoothness = η_smoothness,
         effectivity_type = AbsoluteEffectivity(),
         n_search_points = 50,
-        convergence_criterion = VargaConvergence(1.0)
+        convergence_criterion = VargaConvergence(1.0),
     )
 
-    prob = qlaw_problem(oe0, oeT, tspan, μ, spacecraft;
-                        weights = weights,
-                        qlaw_params = params,
-                        dynamics_model = dynamics_model,
-                        sun_model = sun_model,
-                        JD0 = JD0)
+    prob = qlaw_problem(
+        oe0,
+        oeT,
+        tspan,
+        μ,
+        spacecraft;
+        weights = weights,
+        qlaw_params = params,
+        dynamics_model = dynamics_model,
+        sun_model = sun_model,
+        JD0 = JD0,
+    )
 
     sol = solve(prob)
 
@@ -179,29 +191,53 @@ println()
 x0 = lb .+ (ub .- lb) .* 0.5
 
 opt_f_summed = OptimizationFunction(objective_summed)
-opt_prob_summed = OptimizationProblem(opt_f_summed, x0, p_common; lb=lb, ub=ub)
+opt_prob_summed = OptimizationProblem(opt_f_summed, x0, p_common; lb = lb, ub = ub)
 
-@time sol_summed = Optimization.solve(opt_prob_summed,
+@time sol_summed = Optimization.solve(
+    opt_prob_summed,
     BBO_adaptive_de_rand_1_bin_radiuslimited();
-    maxiters=500, maxtime=600.0)
+    maxiters = 500,
+    maxtime = 600.0,
+)
 
 println("\nSummedError BBO Results:")
-println("  Optimal weights: Wa=$(round(sol_summed.u[1], digits=4)), " *
-        "Wf=$(round(sol_summed.u[2], digits=4)), Wg=$(round(sol_summed.u[3], digits=4)), " *
-        "Wh=$(round(sol_summed.u[4], digits=4)), Wk=$(round(sol_summed.u[5], digits=4))")
+println(
+    "  Optimal weights: Wa=$(round(sol_summed.u[1], digits=4)), " *
+    "Wf=$(round(sol_summed.u[2], digits=4)), Wg=$(round(sol_summed.u[3], digits=4)), " *
+    "Wh=$(round(sol_summed.u[4], digits=4)), Wk=$(round(sol_summed.u[5], digits=4))",
+)
 println("  Optimal ηth: $(round(sol_summed.u[6], digits=4))")
 println("  Objective value: $(round(sol_summed.objective, digits=6))")
 
 # Verify and extract final result
-weights_summed = QLawWeights(sol_summed.u[1], sol_summed.u[2], sol_summed.u[3],
-                              sol_summed.u[4], sol_summed.u[5])
+weights_summed = QLawWeights(
+    sol_summed.u[1],
+    sol_summed.u[2],
+    sol_summed.u[3],
+    sol_summed.u[4],
+    sol_summed.u[5],
+)
 params_summed = QLawParameters(;
-    Wp=Wp, rp_min=rp_min, η_threshold=sol_summed.u[6],
-    η_smoothness=η_smoothness, effectivity_type=AbsoluteEffectivity(), n_search_points=50,
-    convergence_criterion=SummedErrorConvergence(0.05))
-prob_summed = qlaw_problem(oe0, oeT, tspan, μ, spacecraft;
-    weights=weights_summed, qlaw_params=params_summed,
-    dynamics_model=dynamics_model, sun_model=sun_model, JD0=JD0)
+    Wp = Wp,
+    rp_min = rp_min,
+    η_threshold = sol_summed.u[6],
+    η_smoothness = η_smoothness,
+    effectivity_type = AbsoluteEffectivity(),
+    n_search_points = 50,
+    convergence_criterion = SummedErrorConvergence(0.05),
+)
+prob_summed = qlaw_problem(
+    oe0,
+    oeT,
+    tspan,
+    μ,
+    spacecraft;
+    weights = weights_summed,
+    qlaw_params = params_summed,
+    dynamics_model = dynamics_model,
+    sun_model = sun_model,
+    JD0 = JD0,
+)
 result_summed = solve(prob_summed)
 
 println("  Transfer time: $(round(result_summed.elapsed_time / 86400.0, digits=2)) days")
@@ -215,35 +251,61 @@ println("  Converged: $(result_summed.converged)")
 println()
 println("=" ^ 70)
 println("CRITERION 2: VargaConvergence (Rc=1.0)")
-println("  Converges when: Q * μ/aT³ < Rc * √(Σ W_oe)  (Varga Eq. 35, timescale-normalized)")
+println(
+    "  Converges when: Q * μ/aT³ < Rc * √(Σ W_oe)  (Varga Eq. 35, timescale-normalized)",
+)
 println("=" ^ 70)
 println("Running BBO optimization...")
 println()
 
 opt_f_varga = OptimizationFunction(objective_varga)
-opt_prob_varga = OptimizationProblem(opt_f_varga, x0, p_common; lb=lb, ub=ub)
+opt_prob_varga = OptimizationProblem(opt_f_varga, x0, p_common; lb = lb, ub = ub)
 
-@time sol_varga = Optimization.solve(opt_prob_varga,
+@time sol_varga = Optimization.solve(
+    opt_prob_varga,
     BBO_adaptive_de_rand_1_bin_radiuslimited();
-    maxiters=500, maxtime=600.0)
+    maxiters = 500,
+    maxtime = 600.0,
+)
 
 println("\nVarga BBO Results:")
-println("  Optimal weights: Wa=$(round(sol_varga.u[1], digits=4)), " *
-        "Wf=$(round(sol_varga.u[2], digits=4)), Wg=$(round(sol_varga.u[3], digits=4)), " *
-        "Wh=$(round(sol_varga.u[4], digits=4)), Wk=$(round(sol_varga.u[5], digits=4))")
+println(
+    "  Optimal weights: Wa=$(round(sol_varga.u[1], digits=4)), " *
+    "Wf=$(round(sol_varga.u[2], digits=4)), Wg=$(round(sol_varga.u[3], digits=4)), " *
+    "Wh=$(round(sol_varga.u[4], digits=4)), Wk=$(round(sol_varga.u[5], digits=4))",
+)
 println("  Optimal ηth: $(round(sol_varga.u[6], digits=4))")
 println("  Objective value: $(round(sol_varga.objective, digits=6))")
 
 # Verify and extract final result
-weights_varga = QLawWeights(sol_varga.u[1], sol_varga.u[2], sol_varga.u[3],
-                             sol_varga.u[4], sol_varga.u[5])
+weights_varga = QLawWeights(
+    sol_varga.u[1],
+    sol_varga.u[2],
+    sol_varga.u[3],
+    sol_varga.u[4],
+    sol_varga.u[5],
+)
 params_varga = QLawParameters(;
-    Wp=Wp, rp_min=rp_min, η_threshold=sol_varga.u[6],
-    η_smoothness=η_smoothness, effectivity_type=AbsoluteEffectivity(), n_search_points=50,
-    convergence_criterion=VargaConvergence(1.0))
-prob_varga = qlaw_problem(oe0, oeT, tspan, μ, spacecraft;
-    weights=weights_varga, qlaw_params=params_varga,
-    dynamics_model=dynamics_model, sun_model=sun_model, JD0=JD0)
+    Wp = Wp,
+    rp_min = rp_min,
+    η_threshold = sol_varga.u[6],
+    η_smoothness = η_smoothness,
+    effectivity_type = AbsoluteEffectivity(),
+    n_search_points = 50,
+    convergence_criterion = VargaConvergence(1.0),
+)
+prob_varga = qlaw_problem(
+    oe0,
+    oeT,
+    tspan,
+    μ,
+    spacecraft;
+    weights = weights_varga,
+    qlaw_params = params_varga,
+    dynamics_model = dynamics_model,
+    sun_model = sun_model,
+    JD0 = JD0,
+)
 result_varga = solve(prob_varga)
 
 println("  Transfer time: $(round(result_varga.elapsed_time / 86400.0, digits=2)) days")
@@ -268,32 +330,45 @@ function evaluate_weights(name, weights, ηth)
 
     for (crit_name, criterion) in [
         ("SummedError(0.05)", SummedErrorConvergence(0.05)),
-        ("Varga(Rc=1.0)",     VargaConvergence(1.0))
+        ("Varga(Rc=1.0)", VargaConvergence(1.0)),
     ]
         params = QLawParameters(;
-            Wp=Wp, rp_min=rp_min, η_threshold=ηth,
-            η_smoothness=η_smoothness, effectivity_type=AbsoluteEffectivity(),
-            n_search_points=50,
-            convergence_criterion=criterion)
+            Wp = Wp,
+            rp_min = rp_min,
+            η_threshold = ηth,
+            η_smoothness = η_smoothness,
+            effectivity_type = AbsoluteEffectivity(),
+            n_search_points = 50,
+            convergence_criterion = criterion,
+        )
 
-        prob = qlaw_problem(oe0, oeT, tspan, μ, spacecraft;
-            weights=weights, qlaw_params=params,
-            dynamics_model=dynamics_model, sun_model=sun_model, JD0=JD0)
+        prob = qlaw_problem(
+            oe0,
+            oeT,
+            tspan,
+            μ,
+            spacecraft;
+            weights = weights,
+            qlaw_params = params,
+            dynamics_model = dynamics_model,
+            sun_model = sun_model,
+            JD0 = JD0,
+        )
         result = solve(prob)
 
-        time_str = result.converged ?
-            "$(round(result.elapsed_time / 86400.0, digits=2)) days" : "N/A (did not converge)"
-        mass_str = result.converged ?
-            "$(round(result.final_mass, digits=2)) kg" : "N/A"
+        time_str =
+            result.converged ? "$(round(result.elapsed_time / 86400.0, digits=2)) days" :
+            "N/A (did not converge)"
+        mass_str = result.converged ? "$(round(result.final_mass, digits=2)) kg" : "N/A"
 
-        println("    $crit_name → Transfer: $time_str, Mass: $mass_str, Converged: $(result.converged)")
+        println(
+            "    $crit_name → Transfer: $time_str, Mass: $mass_str, Converged: $(result.converged)",
+        )
     end
 end
 
-evaluate_weights("Weights optimized with SummedError",
-                  weights_summed, sol_summed.u[6])
-evaluate_weights("Weights optimized with Varga",
-                  weights_varga, sol_varga.u[6])
+evaluate_weights("Weights optimized with SummedError", weights_summed, sol_summed.u[6])
+evaluate_weights("Weights optimized with Varga", weights_varga, sol_varga.u[6])
 
 # =============================================================================
 # Summary Table
@@ -304,14 +379,12 @@ println("=" ^ 70)
 println("SUMMARY")
 println("=" ^ 70)
 
-a_T  = QLaw.get_sma(oeT)
-e_T  = sqrt(oeT.f^2 + oeT.g^2)
-i_T  = 2 * atan(sqrt(oeT.h^2 + oeT.k^2))
+a_T = QLaw.get_sma(oeT)
+e_T = sqrt(oeT.f^2 + oeT.g^2)
+i_T = 2 * atan(sqrt(oeT.h^2 + oeT.k^2))
 
-for (name, result, sol_opt) in [
-    ("SummedError", result_summed, sol_summed),
-    ("Varga",       result_varga,  sol_varga)
-]
+for (name, result, sol_opt) in
+    [("SummedError", result_summed, sol_summed), ("Varga", result_varga, sol_varga)]
     w = sol_opt.u
     oe = result.final_oe
     a_f = QLaw.get_sma(oe)
@@ -322,14 +395,22 @@ for (name, result, sol_opt) in [
 
     println()
     println("  $name")
-    println("  ├─ Weights: Wa=$(round(w[1],digits=3)), Wf=$(round(w[2],digits=3)), " *
-            "Wg=$(round(w[3],digits=3)), Wh=$(round(w[4],digits=3)), Wk=$(round(w[5],digits=3))")
+    println(
+        "  ├─ Weights: Wa=$(round(w[1],digits=3)), Wf=$(round(w[2],digits=3)), " *
+        "Wg=$(round(w[3],digits=3)), Wh=$(round(w[4],digits=3)), Wk=$(round(w[5],digits=3))",
+    )
     println("  ├─ ηth:     $(round(w[6], digits=3))")
     println("  ├─ Time:    $t")
     println("  ├─ Mass:    $m")
-    println("  ├─ Final a: $(round(a_f, digits=2)) km   (target: $(round(a_T, digits=2)) km,  Δ = $(round(a_f - a_T, digits=2)) km)")
-    println("  ├─ Final e: $(round(e_f, digits=6))        (target: $(round(e_T, digits=6)),  Δ = $(round(e_f - e_T, sigdigits=3)))")
-    println("  └─ Final i: $(round(rad2deg(i_f), digits=4))°       (target: $(round(rad2deg(i_T), digits=4))°,  Δ = $(round(rad2deg(i_f - i_T), digits=4))°)")
+    println(
+        "  ├─ Final a: $(round(a_f, digits=2)) km   (target: $(round(a_T, digits=2)) km,  Δ = $(round(a_f - a_T, digits=2)) km)",
+    )
+    println(
+        "  ├─ Final e: $(round(e_f, digits=6))        (target: $(round(e_T, digits=6)),  Δ = $(round(e_f - e_T, sigdigits=3)))",
+    )
+    println(
+        "  └─ Final i: $(round(rad2deg(i_f), digits=4))°       (target: $(round(rad2deg(i_T), digits=4))°,  Δ = $(round(rad2deg(i_f - i_T), digits=4))°)",
+    )
 end
 println()
 println("=" ^ 70)

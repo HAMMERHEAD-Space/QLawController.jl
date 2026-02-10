@@ -186,6 +186,8 @@ The `examples/` directory contains runnable scripts:
 | Example | Description |
 |---------|-------------|
 | `leo_to_geo.jl` | LEO-to-GEO transfer with J2 + Moon + Sun perturbations, plotting |
+| `leo_to_meo_hifi.jl` | High-fidelity equatorial LEO to inclined MEO (GPS-like) with 36x36 harmonics, Sun/Moon, SRP, and drag |
+| `earth_to_mars_sep.jl` | Heliocentric Earth-to-Mars transfer with `SEPQLawSpacecraft` (thrust scales as 1/r²) |
 | `weight_optimization.jl` | BBO global search and DOE + SAMIN local refinement for weight tuning |
 | `convergence_criteria_comparison.jl` | Side-by-side comparison of `SummedErrorConvergence` vs `VargaConvergence` |
 
