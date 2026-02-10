@@ -81,9 +81,9 @@ end
     @test params2.Wp == 2.0
     
     # Varga convergence
-    params3 = QLawParameters(; convergence_criterion=VargaConvergence(1.0))
+    params3 = QLawParameters(; convergence_criterion=VargaConvergence(0.01))
     @test params3.convergence_criterion isa VargaConvergence
-    @test params3.convergence_criterion.Rc == 1.0
+    @test params3.convergence_criterion.Rc == 0.01
     
     # Custom scaling
     params4 = QLawParameters(; m_scaling=0.5, n_scaling=2.0, r_scaling=1.0, Θrot=0.1)

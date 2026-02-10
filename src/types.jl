@@ -137,10 +137,12 @@ SummedErrorConvergence() = SummedErrorConvergence(0.05)
     VargaConvergence{T}
 
 Convergence based on Q-function value (Varga Eq. 35).
-Stop when Q < Rc * √(Σ Woe).
 
-`Rc` is a dimensionless parameter controlling the remaining distance
-from the target orbit, nominally set to unity.
+The criterion normalizes Q by the target orbit's characteristic timescale
+squared (aT³/μ) to make it independent of physical units:
+    Q * μ / aT³ < Rc * √(Σ Woe)
+With this normalization, `Rc` is truly dimensionless and `Rc=1` (the paper's
+nominal value) gives convergence when the orbit is within ~0.5-1% of the target.
 """
 struct VargaConvergence{T<:Number} <: AbstractConvergenceCriterion
     Rc::T

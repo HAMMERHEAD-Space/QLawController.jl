@@ -54,6 +54,7 @@ function SciMLBase.solve(problem::QLawProblem{OE0,OET,Tm,Tt0,Ttf,Tμ,Tjd,SC,W,P,
     oe0 = problem.oe0
     u0 = SVector{7,T}(oe0.p, oe0.f, oe0.g, oe0.h, oe0.k, oe0.L, problem.m0)
     
+    
     # Parameters
     ps = ComponentArray(
         μ = problem.μ,

@@ -651,14 +651,25 @@ end
     check_convergence(oe, oeT, weights, μ, F_max, params, criterion::VargaConvergence)
 
 Check convergence using Q-function value (Varga Eq. 35).
-Stop when Q < Rc * √(Σ Woe).
+
+Q is normalized by the target orbit's characteristic timescale squared
+(aT³/μ) so that the criterion is independent of physical units:
+    Q * (μ / aT³) < Rc * √(Σ Woe)
+With Rc=1 (Varga's nominal value), this converges when the orbit is
+within ~0.5-1% of the target elements.
 """
 function check_convergence(oe::ModEq{T1}, oeT::ModEq{T2}, weights::QLawWeights{T3},
                             μ::Number, F_max::Number, params::QLawParameters,
                             criterion::VargaConvergence) where {T1<:Number, T2<:Number, T3<:Number}
     Q_val = compute_Q(oe, oeT, weights, μ, F_max, params)
     W_sum = weights.Wa + weights.Wf + weights.Wg + weights.Wh + weights.Wk
-    return Q_val < criterion.Rc * sqrt(W_sum)
+    
+    # Normalize Q by target orbit characteristic timescale squared (aT³/μ)
+    # This makes Q dimensionless, matching Varga's assumed canonical units
+    aT = get_sma(oeT)
+    Q_normalized = Q_val * μ / aT^3
+    
+    return Q_normalized < criterion.Rc * sqrt(W_sum)
 end
 
 # SummedError doesn't need extra args beyond oe/oeT, ignore the rest

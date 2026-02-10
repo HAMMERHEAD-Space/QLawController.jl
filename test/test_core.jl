@@ -493,6 +493,122 @@ end
         @test QLaw.check_convergence(oe_close, oeT; tol=0.05) == true   # 0.01 < 0.05 → converged
         @test QLaw.check_convergence(oe_close, oeT; tol=0.005) == false # 0.01 > 0.005 → not converged
     end
+    
+    @testset "SummedErrorConvergence explicit dispatch" begin
+        kepT = Keplerian(42164.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        kep_close = Keplerian(42164.0 * 1.01, 0.0, 0.0, 0.0, 0.0, 0.0)
+        oeT = ModEq(kepT, μ)
+        oe_close = ModEq(kep_close, μ)
+        
+        crit_loose = SummedErrorConvergence(0.05)
+        crit_tight = SummedErrorConvergence(0.005)
+        
+        @test QLaw.check_convergence(oe_close, oeT, crit_loose) == true
+        @test QLaw.check_convergence(oe_close, oeT, crit_tight) == false
+        
+        # Default tolerance is 0.05
+        crit_default = SummedErrorConvergence()
+        @test crit_default.tol == 0.05
+        @test QLaw.check_convergence(oe_close, oeT, crit_default) == true
+    end
+    
+    @testset "VargaConvergence: identical elements → converged" begin
+        kep = Keplerian(42164.0, 0.001, 0.01, 0.0, 0.0, 0.0)
+        oe = ModEq(kep, μ)
+        
+        weights = QLawWeights(1.0)
+        F_max = 1e-6  # km/s²
+        params = QLawParameters(; convergence_criterion=VargaConvergence(1.0))
+        
+        # Q ≈ 0 at target → Q_normalized ≈ 0 → below any Rc * √(ΣW) threshold
+        @test QLaw.check_convergence(oe, oe, weights, μ, F_max, params,
+                                      VargaConvergence(1.0)) == true
+    end
+    
+    @testset "VargaConvergence: far from target → not converged" begin
+        kep0 = Keplerian(7000.0, 0.001, deg2rad(28.5), 0.0, 0.0, 0.0)
+        kepT = Keplerian(42164.0, 0.001, 0.01, 0.0, 0.0, 0.0)
+        oe0 = ModEq(kep0, μ)
+        oeT = ModEq(kepT, μ)
+        
+        weights = QLawWeights(1.0)
+        F_max = 1e-6
+        params = QLawParameters(; convergence_criterion=VargaConvergence(1.0))
+        
+        # Large orbit change → Q_normalized >> Rc * √(ΣW) → not converged
+        @test QLaw.check_convergence(oe0, oeT, weights, μ, F_max, params,
+                                      VargaConvergence(1.0)) == false
+    end
+    
+    @testset "VargaConvergence: Rc sensitivity" begin
+        kepT = Keplerian(42164.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        kep_close = Keplerian(42164.0 * 1.005, 0.0, 0.0, 0.0, 0.0, 0.0)
+        oeT = ModEq(kepT, μ)
+        oe_close = ModEq(kep_close, μ)
+        
+        weights = QLawWeights(1.0)
+        F_max = 1e-6
+        params = QLawParameters()
+        
+        # Q_normalized at 0.5% error should be a moderate value
+        Q_val = QLaw.compute_Q(oe_close, oeT, weights, μ, F_max, params)
+        aT = QLaw.get_sma(oeT)
+        Q_norm = Q_val * μ / aT^3
+        @test Q_norm > 0.0
+        
+        # Very large Rc should converge
+        W_sum = weights.Wa + weights.Wf + weights.Wg + weights.Wh + weights.Wk
+        @test QLaw.check_convergence(oe_close, oeT, weights, μ, F_max, params,
+                                      VargaConvergence(Q_norm / sqrt(W_sum) + 1.0)) == true
+        
+        # Very small Rc should not converge
+        @test QLaw.check_convergence(oe_close, oeT, weights, μ, F_max, params,
+                                      VargaConvergence(1e-30)) == false
+    end
+    
+    @testset "VargaConvergence: timescale normalization makes Rc unit-independent" begin
+        # The key property: Q * μ/aT³ is dimensionless, so Rc=1 works
+        # regardless of whether we use km or m or canonical units.
+        kep0 = Keplerian(7000.0, 0.001, deg2rad(28.5), 0.0, 0.0, 0.0)
+        kepT = Keplerian(42164.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        kep_close = Keplerian(42164.0 * 1.001, 0.0, 0.0, 0.0, 0.0, 0.0)
+        oe0 = ModEq(kep0, μ)
+        oeT = ModEq(kepT, μ)
+        oe_close = ModEq(kep_close, μ)
+        
+        weights = QLawWeights(1.0)
+        F_max = 1e-6
+        params = QLawParameters()
+        
+        # At 0.1% error, should converge with Rc=1 (close to target)
+        @test QLaw.check_convergence(oe_close, oeT, weights, μ, F_max, params,
+                                      VargaConvergence(1.0)) == true
+        
+        # At initial LEO, should NOT converge with Rc=1
+        @test QLaw.check_convergence(oe0, oeT, weights, μ, F_max, params,
+                                      VargaConvergence(1.0)) == false
+    end
+    
+    @testset "VargaConvergence: dispatch via params.convergence_criterion" begin
+        kep = Keplerian(42164.0, 0.001, 0.01, 0.0, 0.0, 0.0)
+        oe = ModEq(kep, μ)
+        
+        weights = QLawWeights(1.0)
+        F_max = 1e-6
+        
+        # Dispatch through params (no explicit criterion argument)
+        params_varga = QLawParameters(; convergence_criterion=VargaConvergence(1.0))
+        @test QLaw.check_convergence(oe, oe, weights, μ, F_max, params_varga) == true
+        
+        # SummedError dispatch through params
+        params_summed = QLawParameters(; convergence_criterion=SummedErrorConvergence(0.05))
+        @test QLaw.check_convergence(oe, oe, weights, μ, F_max, params_summed) == true
+    end
+    
+    @testset "VargaConvergence: default Rc" begin
+        crit = VargaConvergence()
+        @test crit.Rc == 1.0
+    end
 end
 
 # ==========================================================================
