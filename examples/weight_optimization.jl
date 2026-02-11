@@ -205,7 +205,7 @@ println("=" ^ 70)
 println("Starting optimization (this may take 10+ minutes)...")
 println()
 
-opt_f_bbo = OptimizationFunction(objective_mass)
+opt_f_bbo = OptimizationFunction(objective)
 # Initial guess: midpoint of bounds
 x0 = lb .+ (ub .- lb) .* 0.5
 opt_prob_bbo = OptimizationProblem(opt_f_bbo, x0, p; lb = lb, ub = ub)

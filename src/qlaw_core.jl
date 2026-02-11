@@ -245,10 +245,22 @@ function compute_max_rates_at_L(
 end
 
 """
-    compute_max_rates(a, f, g, h, k, L, μ, F_max; n_points=50)
+    compute_max_rates(a, f, g, h, k, L, μ, F_max; n_points=20)
 
-Compute the maximum rate of change of each orbital element.
-Now uses ANALYTICAL formulas from Varga & Perez instead of numerical search.
+Compute the maximum rate of change of each orbital element using a hybrid
+analytical/numerical approach:
+- a: Exact analytical formula (Varga Eq. 14) — max occurs at periapsis
+- f, g, h, k: Grid search over true longitude
+
+The Varga analytical formulas for f, g (Eqs. 15-16) and h, k (Eqs. 17-18)
+are approximations that can underestimate the true orbit-wide maximum for
+eccentric orbits. For f and g, the approximation ḟ_xx ≈ 2F√(p/μ) is exact
+only for circular orbits. For h and k, the formulas assume the maximum of
+|cos(L)|/q or |sin(L)|/q occurs at the same L as the analytical extremum,
+which is incorrect when eccentricity shifts the q-denominator.
+
+The grid search evaluates the GVE partials at `n_points` uniformly spaced
+true longitudes to find the actual maximum.
 
 Returns vector [ȧₓₓ, ḟₓₓ, ġₓₓ, ḣₓₓ, k̇ₓₓ] (5 elements, excluding L).
 """
@@ -261,16 +273,35 @@ function compute_max_rates(
     L::T,
     μ::Number,
     F_max::Number;
-    n_points::Int = 50,
+    n_points::Int = 20,
 ) where {T}
-    # Use analytical formulas - L is not needed
-    return compute_max_rates_analytical(a, f, g, h, k, μ, F_max)
+    # Exact analytical rate for a (Varga Eq. 14) — truly exact since max energy
+    # change rate occurs at periapsis with pure tangential thrust
+    analytical = compute_max_rates_analytical(a, f, g, h, k, μ, F_max)
+
+    # Grid search for f, g, h, k max rates
+    # Initialize with analytical values as lower bounds
+    f_dot_max = analytical[2]
+    g_dot_max = analytical[3]
+    h_dot_max = analytical[4]
+    k_dot_max = analytical[5]
+
+    for i = 0:(n_points-1)
+        L_test = T(2π) * T(i) / T(n_points)
+        rates_at_L = compute_max_rates_at_L(a, f, g, h, k, L_test, μ, F_max)
+        f_dot_max = max(f_dot_max, rates_at_L[2])
+        g_dot_max = max(g_dot_max, rates_at_L[3])
+        h_dot_max = max(h_dot_max, rates_at_L[4])
+        k_dot_max = max(k_dot_max, rates_at_L[5])
+    end
+
+    return SVector{5,T}(analytical[1], f_dot_max, g_dot_max, h_dot_max, k_dot_max)
 end
 
 # Convenience method that takes ModEq
 function compute_max_rates(oe::ModEq{T}, μ::Number, F_max::Number) where {T}
     a = get_sma(oe)
-    return compute_max_rates_analytical(a, oe.f, oe.g, oe.h, oe.k, μ, F_max)
+    return compute_max_rates(a, oe.f, oe.g, oe.h, oe.k, oe.L, μ, F_max)
 end
 
 # =============================================================================
@@ -571,6 +602,13 @@ function compute_Qdot_coefficients(
     # Precompute max_rates for this orbit shape - treated as CONSTANT for ∂Q/∂oe
     # Per Varga Eq. (21): ∂Q/∂oe = 2*Soe*Woe*(oe-oeT)/ȯexx²
     # The ȯexx terms are normalization constants, not differentiated through
+    #
+    # IMPORTANT: Use analytical formulas here (not hybrid grid search) because
+    # the grid search max() introduces non-smooth dependence on orbital state.
+    # As the orbit evolves, the grid point that "wins" the max can switch
+    # discretely, creating kinks in Q that propagate as thrust direction spikes.
+    # The analytical formulas are smooth functions of the orbital elements,
+    # ensuring the ODE integrator sees a smooth RHS.
     max_rates = compute_max_rates_analytical(a, oe.f, oe.g, oe.h, oe.k, μ, F_max)
 
     # Precompute target and weight vectors (constants for AD)
@@ -606,7 +644,8 @@ function compute_Qdot_coefficients(
     # Get A matrix (∂oe/∂F) at current position
     A = equinoctial_gve_partials(oe, μ)
 
-    # D coefficients (note: paper uses θ for tangential, r for radial)
+    # D coefficients: Q̇ = D1·cos(β)cos(α) + D2·cos(β)sin(α) + D3·sin(β)
+    # Per Varga Eq. 20-23: D_i = F_max · Σ (∂Q/∂oe_j)(∂oe_j/∂F_i)
     # A columns: [Fr, Fθ, Fh] = [radial, tangential, normal]
     D1 = zero(T)  # Tangential: ∂oe/∂Fθ is column 2
     D2 = zero(T)  # Radial: ∂oe/∂Fr is column 1
@@ -617,6 +656,13 @@ function compute_Qdot_coefficients(
         D2 += dQ_doe[i] * A[i, 1]  # Radial
         D3 += dQ_doe[i] * A[i, 3]  # Normal
     end
+
+    # Scale by F_max so that returned Q̇ values have the correct physical magnitude.
+    # This does not affect optimal thrust angles (F_max cancels in arctan) or
+    # effectivity ratios (F_max cancels in Qdot_n / Qdot_nn).
+    D1 *= F_max
+    D2 *= F_max
+    D3 *= F_max
 
     return (D1, D2, D3)
 end
@@ -940,7 +986,7 @@ From Eq. (33): activation = 0.5 * (1 + tanh((η - η_tr) / μ))
 function effectivity_activation(
     η::NT,
     η_threshold::NT2,
-    μ_smooth::MT3 = T(1e-4),
+    μ_smooth::MT3 = NT(1e-4),
 ) where {NT<:Number,NT2<:Number,MT3<:Number}
     T = promote_type(NT, NT2, MT3)
     return T(0.5) * (one(T) + tanh((η - η_threshold) / μ_smooth))
@@ -953,9 +999,39 @@ end
 # =============================================================================
 
 """
+    _element_errors(oe, oeT)
+
+Compute per-element relative errors between current and target orbital elements.
+
+Normalization scales:
+- Semi-major axis: aT  (always positive for physical orbits)
+- f, g: max(√(fT² + gT²), ε) — eccentricity magnitude, floored for near-circular targets
+- h, k: max(√(hT² + kT²), ε) — inclination factor, floored for near-equatorial targets
+
+The floor ε = 0.01 prevents division by zero for circular/equatorial targets
+and ensures absolute errors below ε × tol are always considered converged.
+"""
+function _element_errors(oe::ModEq, oeT::ModEq)
+    a = get_sma(oe)
+    aT = get_sma(oeT)
+
+    ε = 0.01
+    e_ref = max(sqrt(oeT.f^2 + oeT.g^2), ε)
+    hk_ref = max(sqrt(oeT.h^2 + oeT.k^2), ε)
+
+    err_a = abs(a - aT) / aT
+    err_f = abs(oe.f - oeT.f) / e_ref
+    err_g = abs(oe.g - oeT.g) / e_ref
+    err_h = abs(oe.h - oeT.h) / hk_ref
+    err_k = abs(oe.k - oeT.k) / hk_ref
+
+    return (err_a, err_f, err_g, err_h, err_k)
+end
+
+"""
     check_convergence(oe, oeT, criterion::SummedErrorConvergence)
 
-Check convergence using summed normalized element errors (paper default).
+Check convergence using summed per-element relative errors.
 Legacy method without weights — checks all elements.
 """
 function check_convergence(
@@ -963,15 +1039,7 @@ function check_convergence(
     oeT::ModEq{T2},
     criterion::SummedErrorConvergence,
 ) where {T<:Number,T2<:Number}
-    a = get_sma(oe)
-    aT = get_sma(oeT)
-
-    err_a = abs(a - aT) / aT
-    err_f = abs(oe.f - oeT.f)
-    err_g = abs(oe.g - oeT.g)
-    err_h = abs(oe.h - oeT.h)
-    err_k = abs(oe.k - oeT.k)
-
+    err_a, err_f, err_g, err_h, err_k = _element_errors(oe, oeT)
     return (err_a + err_f + err_g + err_h + err_k) < criterion.tol
 end
 
@@ -1009,7 +1077,7 @@ end
 """
     check_convergence(oe, oeT, weights, μ, F_max, params, criterion::SummedErrorConvergence)
 
-Weight-aware summed error convergence. Only checks elements with non-zero weight,
+Weight-aware summed relative error convergence. Only checks elements with non-zero weight,
 so elements marked "free" (W=0) are not required to match the target.
 """
 function check_convergence(
@@ -1021,19 +1089,62 @@ function check_convergence(
     params::QLawParameters,
     criterion::SummedErrorConvergence,
 ) where {T1<:Number,T2<:Number,T3<:Number}
-    a = get_sma(oe)
-    aT = get_sma(oeT)
+    err_a, err_f, err_g, err_h, err_k = _element_errors(oe, oeT)
 
     total_err = zero(promote_type(T1, T2))
 
     # Only accumulate errors for targeted elements (W > 0)
-    (weights.Wa > 0) && (total_err += abs(a - aT) / aT)
-    (weights.Wf > 0) && (total_err += abs(oe.f - oeT.f))
-    (weights.Wg > 0) && (total_err += abs(oe.g - oeT.g))
-    (weights.Wh > 0) && (total_err += abs(oe.h - oeT.h))
-    (weights.Wk > 0) && (total_err += abs(oe.k - oeT.k))
+    (weights.Wa > 0) && (total_err += err_a)
+    (weights.Wf > 0) && (total_err += err_f)
+    (weights.Wg > 0) && (total_err += err_g)
+    (weights.Wh > 0) && (total_err += err_h)
+    (weights.Wk > 0) && (total_err += err_k)
 
     return total_err < criterion.tol
+end
+
+"""
+    check_convergence(oe, oeT, criterion::MaxElementConvergence)
+
+Check convergence using the maximum per-element relative error.
+Legacy method without weights — checks all elements.
+"""
+function check_convergence(
+    oe::ModEq{T},
+    oeT::ModEq{T2},
+    criterion::MaxElementConvergence,
+) where {T<:Number,T2<:Number}
+    err_a, err_f, err_g, err_h, err_k = _element_errors(oe, oeT)
+    return max(err_a, err_f, err_g, err_h, err_k) < criterion.tol
+end
+
+"""
+    check_convergence(oe, oeT, weights, μ, F_max, params, criterion::MaxElementConvergence)
+
+Weight-aware max-element convergence. Only checks elements with non-zero weight,
+so elements marked "free" (W=0) are not required to match the target.
+"""
+function check_convergence(
+    oe::ModEq{T1},
+    oeT::ModEq{T2},
+    weights::QLawWeights{T3},
+    μ::Number,
+    F_max::Number,
+    params::QLawParameters,
+    criterion::MaxElementConvergence,
+) where {T1<:Number,T2<:Number,T3<:Number}
+    err_a, err_f, err_g, err_h, err_k = _element_errors(oe, oeT)
+
+    max_err = zero(promote_type(T1, T2))
+
+    # Only check errors for targeted elements (W > 0)
+    (weights.Wa > 0) && (max_err = max(max_err, err_a))
+    (weights.Wf > 0) && (max_err = max(max_err, err_f))
+    (weights.Wg > 0) && (max_err = max(max_err, err_g))
+    (weights.Wh > 0) && (max_err = max(max_err, err_h))
+    (weights.Wk > 0) && (max_err = max(max_err, err_k))
+
+    return max_err < criterion.tol
 end
 
 """

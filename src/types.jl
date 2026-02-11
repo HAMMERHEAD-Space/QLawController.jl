@@ -5,13 +5,15 @@
 export QLawSpacecraft, SEPQLawSpacecraft
 export QLawWeights
 export QLawParameters
-export AbstractConvergenceCriterion, SummedErrorConvergence, VargaConvergence
+export AbstractConvergenceCriterion,
+    SummedErrorConvergence, VargaConvergence, MaxElementConvergence
 export AbstractEffectivityType, AbsoluteEffectivity, RelativeEffectivity
 export AbstractEffectivitySearch, GridSearch, RefinedSearch
 export QLawProblem
 export QLawSolution
 export qlaw_problem
-export mass, exhaust_velocity, max_thrust, max_thrust_acceleration
+export mass,
+    exhaust_velocity, max_thrust, max_thrust_acceleration, max_orbit_thrust_acceleration
 
 """
     AbstractQLawSpacecraft
@@ -77,6 +79,24 @@ function max_thrust_acceleration(sc::AbstractQLawSpacecraft, m::Number, r::Numbe
     T_N = max_thrust(sc, r)
     # Convert N to km/s² (divide by mass in kg, multiply by 1e-3)
     return T_N / m * 1e-3
+end
+
+"""
+    max_orbit_thrust_acceleration(sc::AbstractQLawSpacecraft, m::Number, oe::ModEq)
+
+Compute the maximum thrust acceleration [km/s²] over the entire osculating orbit.
+
+For constant-thrust spacecraft this equals the value at any orbital position.
+For SEP spacecraft (thrust ∝ 1/r²), the maximum occurs at periapsis where r is
+smallest. Using the orbit-maximum thrust for Q-Law normalization (max_rates) ensures
+that the Q function is consistently normalized regardless of orbital position,
+preventing artificial Q variations from thrust scaling on eccentric orbits.
+"""
+function max_orbit_thrust_acceleration(sc::AbstractQLawSpacecraft, m::Number, oe::ModEq)
+    e = sqrt(oe.f^2 + oe.g^2)
+    a = p_to_a(oe.p, oe.f, oe.g)
+    rp = a * (one(typeof(e)) - e)  # Periapsis radius (min r → max thrust for SEP)
+    return max_thrust_acceleration(sc, m, rp)
 end
 
 # =============================================================================
@@ -170,11 +190,18 @@ abstract type AbstractConvergenceCriterion end
 """
     SummedErrorConvergence{T}
 
-Convergence based on summed normalized element errors (paper default).
-Stop when Σ errors < tol.
+Convergence based on summed per-element relative errors.
+Stop when Σ relative_errors < tol.
 
-Semi-major axis error is normalized by target value; other elements use
-absolute difference.
+Each element error is computed relative to its characteristic scale:
+- Semi-major axis: |a - aT| / aT
+- f, g: |Δf| / max(eT, ε), |Δg| / max(eT, ε)  where eT = √(fT² + gT²)
+- h, k: |Δh| / max(sT, ε), |Δk| / max(sT, ε)  where sT = √(hT² + kT²)
+with ε = 0.01 floor for near-zero targets.
+
+Note: Because errors are summed, a large error in one element can be masked
+by small errors in others. Consider `MaxElementConvergence` for stricter
+per-element guarantees.
 """
 struct SummedErrorConvergence{T<:Number} <: AbstractConvergenceCriterion
     tol::T
@@ -196,6 +223,27 @@ struct VargaConvergence{T<:Number} <: AbstractConvergenceCriterion
     Rc::T
 end
 VargaConvergence() = VargaConvergence(1.0)
+
+"""
+    MaxElementConvergence{T}
+
+Convergence based on maximum per-element relative error.
+Stop when max(relative_errors) < tol.
+
+Each element error is computed relative to its characteristic scale:
+- Semi-major axis: |a - aT| / aT
+- f, g: |Δf| / max(eT, ε), |Δg| / max(eT, ε)  where eT = √(fT² + gT²)
+- h, k: |Δh| / max(sT, ε), |Δk| / max(sT, ε)  where sT = √(hT² + kT²)
+with ε = 0.01 floor for near-zero targets.
+
+This criterion ensures **every** targeted element is independently within
+tolerance, preventing any single element from hiding behind others in a
+pooled error budget (as can happen with `SummedErrorConvergence`).
+"""
+struct MaxElementConvergence{T<:Number} <: AbstractConvergenceCriterion
+    tol::T
+end
+MaxElementConvergence() = MaxElementConvergence(0.01)
 
 # =============================================================================
 # Q-Law Parameters

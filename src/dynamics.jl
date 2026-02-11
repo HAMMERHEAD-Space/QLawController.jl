@@ -70,11 +70,19 @@ function qlaw_thrust_acceleration(
     # Get orbital radius for SEP thrust scaling
     r = compute_radius(oe)
 
-    # Maximum thrust acceleration
+    # Thrust acceleration at current orbital position (used for actual thrust magnitude)
     F_max = max_thrust_acceleration(spacecraft, m, r)
 
+    # Orbit-maximum thrust acceleration (at periapsis) for Q-Law normalization.
+    # For constant-thrust spacecraft this equals F_max. For SEP (thrust ∝ 1/r²),
+    # using the orbit-max ensures that max_rates normalization in the Q function
+    # is consistent across the orbit, preventing artificial Q variations from
+    # thrust scaling on eccentric orbits.
+    F_max_orbit = max_orbit_thrust_acceleration(spacecraft, m, oe)
+
     # Compute thrust direction AND effectivity together (avoids redundant Qdot_n)
-    α, β, _, η = compute_thrust_and_effectivity(oe, oeT, weights, μ, F_max, params)
+    # Uses orbit-max F_max for consistent Q-Law normalization (Varga Eqs. 14-18)
+    α, β, _, η = compute_thrust_and_effectivity(oe, oeT, weights, μ, F_max_orbit, params)
 
     # Activation (smooth throttle based on effectivity)
     activation = effectivity_activation(η, params.η_threshold, params.η_smoothness)
@@ -85,7 +93,7 @@ function qlaw_thrust_acceleration(
     # Thrust direction in RTN
     u_rtn = thrust_direction_to_rtn(α, β)
 
-    # Thrust acceleration
+    # Actual thrust acceleration uses current-position F_max
     a_thrust_rtn = throttle * F_max * u_rtn
 
     return (a_thrust_rtn, throttle, α, β)

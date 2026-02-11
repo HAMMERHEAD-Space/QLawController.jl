@@ -363,10 +363,9 @@ end
     end
 
     @testset "Max rates are same order of magnitude as rates at any L" begin
-        # compute_max_rates uses analytical formulas (Varga Eqs. 14-18) which give
-        # an approximation for normalization purposes. For eccentric orbits, there
-        # can be significant differences vs GVE-based computation at specific L.
-        # The key property is that they're the same order of magnitude.
+        # compute_max_rates uses a hybrid approach: analytical for a,h,k (exact)
+        # and grid search for f,g (Varga Eqs. 15-16 are approximate).
+        # The orbit-wide max should be >= any single L rate for all elements.
         kep = Keplerian(7000.0, 0.1, 0.5, 0.0, 0.0, 0.0)
         oe = ModEq(kep, μ)
         F_max = 1e-6
@@ -380,9 +379,12 @@ end
             max_rates_at_L =
                 QLaw.compute_max_rates_at_L(a, oe.f, oe.g, oe.h, oe.k, L_rad, μ, F_max)
             for i = 1:5
-                # Allow 50% relative difference (within same order of magnitude)
-                @test max_rates_orbit[i] >= max_rates_at_L[i] * 0.5
-                @test (max_rates_orbit[i] <= max_rates_at_L[i] * 2.0) ||
+                # Orbit-wide max must be >= rate at any single L
+                @test max_rates_orbit[i] >= max_rates_at_L[i] * (1.0 - 1e-10)
+                # Orbit-wide max should be within 5x of rate at any L
+                # (for f,g the true max over L can be significantly larger than
+                # rates at L values far from the maximum, especially on eccentric orbits)
+                @test (max_rates_orbit[i] <= max_rates_at_L[i] * 5.0) ||
                       (max_rates_at_L[i] < 1e-20)
             end
         end
@@ -540,6 +542,77 @@ end
         crit_default = SummedErrorConvergence()
         @test crit_default.tol == 0.05
         @test QLaw.check_convergence(oe_close, oeT, crit_default) == true
+    end
+
+    @testset "MaxElementConvergence: identical elements → converged" begin
+        kep = Keplerian(42164.0, 0.001, 0.01, 0.0, 0.0, 0.0)
+        oe = ModEq(kep, μ)
+
+        @test QLaw.check_convergence(oe, oe, MaxElementConvergence(0.01)) == true
+    end
+
+    @testset "MaxElementConvergence: 1% a error within tolerance" begin
+        kepT = Keplerian(42164.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        kep_close = Keplerian(42164.0 * 1.01, 0.0, 0.0, 0.0, 0.0, 0.0)  # 1% off in a
+        oeT = ModEq(kepT, μ)
+        oe_close = ModEq(kep_close, μ)
+
+        # max element error is ~0.01 (from a), so tol=0.02 should pass, tol=0.005 should fail
+        @test QLaw.check_convergence(oe_close, oeT, MaxElementConvergence(0.02)) == true
+        @test QLaw.check_convergence(oe_close, oeT, MaxElementConvergence(0.005)) == false
+    end
+
+    @testset "MaxElementConvergence: catches single-element violation" begin
+        # A case where summed error might pass but max element catches the outlier
+        kepT = Keplerian(42164.0, 0.3, 0.0, 0.0, 0.0, 0.0)  # e=0.3
+        # Nearby: a matches, but eccentricity is off by 0.02
+        kep_off = Keplerian(42164.0, 0.32, 0.0, 0.0, 0.0, 0.0)
+        oeT = ModEq(kepT, μ)
+        oe_off = ModEq(kep_off, μ)
+
+        # Relative f error = |0.32 - 0.3| / 0.3 ≈ 0.067
+        # Max element: 0.067 > 0.05 → not converged
+        @test QLaw.check_convergence(oe_off, oeT, MaxElementConvergence(0.05)) == false
+        # With looser tolerance: 0.067 < 0.1 → converged
+        @test QLaw.check_convergence(oe_off, oeT, MaxElementConvergence(0.1)) == true
+    end
+
+    @testset "MaxElementConvergence: default tolerance" begin
+        crit = MaxElementConvergence()
+        @test crit.tol == 0.01
+    end
+
+    @testset "MaxElementConvergence: weight-aware dispatch" begin
+        kep = Keplerian(42164.0, 0.001, 0.01, 0.0, 0.0, 0.0)
+        oe = ModEq(kep, μ)
+
+        weights = QLawWeights(1.0)
+        F_max = 1e-6
+        params = QLawParameters(; convergence_criterion = MaxElementConvergence(0.01))
+
+        # Identical elements → converged
+        @test QLaw.check_convergence(oe, oe, weights, μ, F_max, params) == true
+    end
+
+    @testset "MaxElementConvergence: weight-aware skips free elements" begin
+        # Target only a (other weights = 0)
+        kepT = Keplerian(42164.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        kep_close = Keplerian(42164.0 * 1.005, 0.3, 0.2, 0.1, 0.05, 0.0)  # Close in a, far in others
+        oeT = ModEq(kepT, μ)
+        oe_close = ModEq(kep_close, μ)
+
+        weights = QLawWeights(1.0, 0.0, 0.0, 0.0, 0.0)  # Only target a
+        F_max = 1e-6
+        params = QLawParameters(; convergence_criterion = MaxElementConvergence(0.01))
+
+        # Max error among targeted elements: err_a = 0.005 < 0.01 → converged
+        @test QLaw.check_convergence(oe_close, oeT, weights, μ, F_max, params) == true
+
+        # With all elements targeted: eccentricity errors dominate → not converged
+        weights_all = QLawWeights(1.0)
+        params_all = QLawParameters(; convergence_criterion = MaxElementConvergence(0.01))
+        @test QLaw.check_convergence(oe_close, oeT, weights_all, μ, F_max, params_all) ==
+              false
     end
 
     @testset "VargaConvergence: identical elements → converged" begin

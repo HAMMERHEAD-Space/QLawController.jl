@@ -15,7 +15,7 @@ Q-Law is a Lyapunov candidate function that provides a feedback guidance law for
 - **Automatic differentiation**: Uses ForwardDiff.jl for computing ∂Q/∂œ, enabling gradient-based optimization of weights
 - **Effectivity-based coasting**: Smooth activation function for AD-compatible thrust/coast decisions
 - **Flexible weighting**: Customizable weights for each orbital element to prioritize different transfer objectives
-- **Convergence criteria**: Choose between summed-error (`SummedErrorConvergence`) or Q-function-based (`VargaConvergence`) stopping conditions
+- **Convergence criteria**: Choose between summed-error (`SummedErrorConvergence`), max-element (`MaxElementConvergence`), or Q-function-based (`VargaConvergence`) stopping conditions
 - **Weight optimization**: Optimize Q-Law weights using global (BlackBoxOptim) or local (SAMIN) solvers via Optimization.jl
 - **Perturbation models**: Gravity harmonics, third-body (Moon/Sun), and eclipse/shadow effects via AstroForceModels.jl
 - **SciML interface**: Compatible with `solve()` and `remake()` patterns from the SciML ecosystem
@@ -32,7 +32,8 @@ Based on the formulation from Petropoulos (2003) with enhancements from Varga & 
 - Absolute and relative effectivity metrics (`AbsoluteEffectivity`, `RelativeEffectivity`)
 - Smooth activation function for AD-compatible coasting decisions
 - Eclipse/shadow modeling via AstroForceModels.jl (conical and cylindrical)
-- Two convergence criteria: `SummedErrorConvergence` and `VargaConvergence`
+- Three convergence criteria: `SummedErrorConvergence`, `MaxElementConvergence`, and `VargaConvergence`
+- Hybrid max-rate computation: exact analytical for semi-major axis, grid search over true longitude for f, g, h, k
 
 ## Installation
 
@@ -127,16 +128,30 @@ params = QLawParameters(; effectivity_type = RelativeEffectivity())
 
 ## Convergence Criteria
 
-Two stopping criteria are available, selectable via the `convergence_criterion` keyword in `QLawParameters`:
+Three stopping criteria are available, selectable via the `convergence_criterion` keyword in `QLawParameters`:
 
 ### SummedErrorConvergence (default)
 
-Converges when the weighted sum of normalized orbital element errors drops below a tolerance:
+Converges when the sum of per-element relative errors drops below a tolerance:
 
-$$\sum_{i} \frac{|œ_i - œ_{T,i}|}{|œ_{T,i}|} < \text{tol}$$
+$$\sum_{i} \frac{|œ_i - œ_{T,i}|}{\text{ref}_i} < \text{tol}$$
+
+Each element error is normalized by a characteristic scale: `aT` for semi-major axis, `max(eT, ε)` for f and g, and `max(√(hT² + kT²), ε)` for h and k, with a floor `ε = 0.01` for near-zero targets.
 
 ```julia
 params = QLawParameters(; convergence_criterion = SummedErrorConvergence(0.05))
+```
+
+### MaxElementConvergence
+
+Converges when every individual element's relative error is below the tolerance:
+
+$$\max_{i} \frac{|œ_i - œ_{T,i}|}{\text{ref}_i} < \text{tol}$$
+
+Uses the same per-element relative errors as `SummedErrorConvergence`. This is stricter — it prevents any single element from hiding behind others in a pooled error budget.
+
+```julia
+params = QLawParameters(; convergence_criterion = MaxElementConvergence(0.01))
 ```
 
 ### VargaConvergence
@@ -189,7 +204,7 @@ The `examples/` directory contains runnable scripts:
 | `leo_to_meo_hifi.jl` | High-fidelity equatorial LEO to inclined MEO (GPS-like) with 36x36 harmonics, Sun/Moon, SRP, and drag |
 | `earth_to_mars_sep.jl` | Heliocentric Earth-to-Mars transfer with `SEPQLawSpacecraft` (thrust scales as 1/r²) |
 | `weight_optimization.jl` | BBO global search and DOE + SAMIN local refinement for weight tuning |
-| `convergence_criteria_comparison.jl` | Side-by-side comparison of `SummedErrorConvergence` vs `VargaConvergence` |
+| `convergence_criteria_comparison.jl` | Side-by-side comparison of `SummedErrorConvergence`, `VargaConvergence`, and `MaxElementConvergence` |
 
 To run an example:
 
@@ -211,9 +226,11 @@ $$Q = (1 + W_P P) \sum_{œ} W_{œ} S_{œ} \left( \frac{œ - œ_T}{\dot{œ}_{xx}}
 where:
 - $W_{œ}$ are weights for each orbital element
 - $S_{œ}$ is a scaling function to prevent divergence (Varga Eq. 8)
-- $\dot{œ}_{xx}$ is the maximum rate of change over all thrust directions
+- $\dot{œ}_{xx}$ is the maximum rate of change over all thrust directions and true longitudes
 - $P$ is a penalty function for minimum periapsis constraint
 - $W_P$ is the penalty weight
+
+The maximum rates $\dot{œ}_{xx}$ use a hybrid approach: the exact analytical formula (Varga Eq. 14) for semi-major axis, and a grid search over true longitude for f, g, h, k (since the Varga Eqs. 15--18 approximations can underestimate on eccentric orbits). The smooth analytical formulas are retained inside the ODE integrator for thrust direction computation to avoid non-smooth behavior.
 
 ### Optimal Thrust Direction
 

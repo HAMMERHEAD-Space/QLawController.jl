@@ -1,9 +1,10 @@
 # =============================================================================
 # Convergence Criteria Comparison Example
 #
-# Compares two convergence criteria for Q-Law weight optimization:
-#   1. SummedErrorConvergence (default) - summed normalized orbital element errors
+# Compares three convergence criteria for Q-Law weight optimization:
+#   1. SummedErrorConvergence - summed per-element relative errors
 #   2. VargaConvergence - Q-function based criterion (Varga Eq. 35)
+#   3. MaxElementConvergence (default) - max per-element relative error
 #
 # For each criterion, a BBO (Differential Evolution) global optimization is run
 # to find optimal weights and effectivity threshold that minimize transfer time.
@@ -177,6 +178,43 @@ function objective_varga(x, p)
     end
 end
 
+function objective_maxelement(x, p)
+    oe0, oeT, tspan, μ, spacecraft, dynamics_model, sun_model, JD0 = p
+
+    weights = QLawWeights(x[1], x[2], x[3], x[4], x[5])
+
+    params = QLawParameters(;
+        Wp = Wp,
+        rp_min = rp_min,
+        η_threshold = x[6],
+        η_smoothness = η_smoothness,
+        effectivity_type = AbsoluteEffectivity(),
+        n_search_points = 50,
+        convergence_criterion = MaxElementConvergence(0.01),
+    )
+
+    prob = qlaw_problem(
+        oe0,
+        oeT,
+        tspan,
+        μ,
+        spacecraft;
+        weights = weights,
+        qlaw_params = params,
+        dynamics_model = dynamics_model,
+        sun_model = sun_model,
+        JD0 = JD0,
+    )
+
+    sol = solve(prob)
+
+    if sol.converged
+        return sol.elapsed_time / tspan[2]
+    else
+        return 1e10
+    end
+end
+
 # =============================================================================
 # BBO Optimization: SummedErrorConvergence
 # =============================================================================
@@ -313,62 +351,72 @@ println("  Final mass: $(round(result_varga.final_mass, digits=2)) kg")
 println("  Converged: $(result_varga.converged)")
 
 # =============================================================================
-# Cross-Evaluation
-#
-# Run each set of optimal weights under BOTH criteria to see how the choice
-# of convergence criterion during optimization affects the actual transfer.
+# BBO Optimization: MaxElementConvergence
 # =============================================================================
 
 println()
 println("=" ^ 70)
-println("CROSS-EVALUATION")
+println("CRITERION 3: MaxElementConvergence (tol=0.01)")
+println("  Converges when: max(relative_errors) < tol  (every element within tol)")
 println("=" ^ 70)
+println("Running BBO optimization...")
+println()
 
-# Helper to evaluate a set of weights under both criteria
-function evaluate_weights(name, weights, ηth)
-    println("\n  --- $name ---")
+opt_f_maxelement = OptimizationFunction(objective_maxelement)
+opt_prob_maxelement = OptimizationProblem(opt_f_maxelement, x0, p_common; lb = lb, ub = ub)
 
-    for (crit_name, criterion) in [
-        ("SummedError(0.05)", SummedErrorConvergence(0.05)),
-        ("Varga(Rc=1.0)", VargaConvergence(1.0)),
-    ]
-        params = QLawParameters(;
-            Wp = Wp,
-            rp_min = rp_min,
-            η_threshold = ηth,
-            η_smoothness = η_smoothness,
-            effectivity_type = AbsoluteEffectivity(),
-            n_search_points = 50,
-            convergence_criterion = criterion,
-        )
+@time sol_maxelement = Optimization.solve(
+    opt_prob_maxelement,
+    BBO_adaptive_de_rand_1_bin_radiuslimited();
+    maxiters = 500,
+    maxtime = 600.0,
+)
 
-        prob = qlaw_problem(
-            oe0,
-            oeT,
-            tspan,
-            μ,
-            spacecraft;
-            weights = weights,
-            qlaw_params = params,
-            dynamics_model = dynamics_model,
-            sun_model = sun_model,
-            JD0 = JD0,
-        )
-        result = solve(prob)
+println("\nMaxElement BBO Results:")
+println(
+    "  Optimal weights: Wa=$(round(sol_maxelement.u[1], digits=4)), " *
+    "Wf=$(round(sol_maxelement.u[2], digits=4)), Wg=$(round(sol_maxelement.u[3], digits=4)), " *
+    "Wh=$(round(sol_maxelement.u[4], digits=4)), Wk=$(round(sol_maxelement.u[5], digits=4))",
+)
+println("  Optimal ηth: $(round(sol_maxelement.u[6], digits=4))")
+println("  Objective value: $(round(sol_maxelement.objective, digits=6))")
 
-        time_str =
-            result.converged ? "$(round(result.elapsed_time / 86400.0, digits=2)) days" :
-            "N/A (did not converge)"
-        mass_str = result.converged ? "$(round(result.final_mass, digits=2)) kg" : "N/A"
+# Verify and extract final result
+weights_maxelement = QLawWeights(
+    sol_maxelement.u[1],
+    sol_maxelement.u[2],
+    sol_maxelement.u[3],
+    sol_maxelement.u[4],
+    sol_maxelement.u[5],
+)
+params_maxelement = QLawParameters(;
+    Wp = Wp,
+    rp_min = rp_min,
+    η_threshold = sol_maxelement.u[6],
+    η_smoothness = η_smoothness,
+    effectivity_type = AbsoluteEffectivity(),
+    n_search_points = 50,
+    convergence_criterion = MaxElementConvergence(0.01),
+)
+prob_maxelement = qlaw_problem(
+    oe0,
+    oeT,
+    tspan,
+    μ,
+    spacecraft;
+    weights = weights_maxelement,
+    qlaw_params = params_maxelement,
+    dynamics_model = dynamics_model,
+    sun_model = sun_model,
+    JD0 = JD0,
+)
+result_maxelement = solve(prob_maxelement)
 
-        println(
-            "    $crit_name → Transfer: $time_str, Mass: $mass_str, Converged: $(result.converged)",
-        )
-    end
-end
-
-evaluate_weights("Weights optimized with SummedError", weights_summed, sol_summed.u[6])
-evaluate_weights("Weights optimized with Varga", weights_varga, sol_varga.u[6])
+println(
+    "  Transfer time: $(round(result_maxelement.elapsed_time / 86400.0, digits=2)) days",
+)
+println("  Final mass: $(round(result_maxelement.final_mass, digits=2)) kg")
+println("  Converged: $(result_maxelement.converged)")
 
 # =============================================================================
 # Summary Table
@@ -383,8 +431,11 @@ a_T = QLaw.get_sma(oeT)
 e_T = sqrt(oeT.f^2 + oeT.g^2)
 i_T = 2 * atan(sqrt(oeT.h^2 + oeT.k^2))
 
-for (name, result, sol_opt) in
-    [("SummedError", result_summed, sol_summed), ("Varga", result_varga, sol_varga)]
+for (name, result, sol_opt) in [
+    ("SummedError", result_summed, sol_summed),
+    ("Varga", result_varga, sol_varga),
+    ("MaxElement", result_maxelement, sol_maxelement),
+]
     w = sol_opt.u
     oe = result.final_oe
     a_f = QLaw.get_sma(oe)
