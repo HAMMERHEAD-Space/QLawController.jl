@@ -1101,3 +1101,404 @@ end
     @test contrib_h > contrib_a  # h dominates
     @test contrib_h / contrib_a > 2.0  # by at least 2x
 end
+
+# ==========================================================================
+# Analytical ∂Q/∂oe gradient — verified against ForwardDiff
+# ==========================================================================
+
+@testset "Analytical ∂Q/∂oe Gradient" begin
+    μ = 398600.4418
+    F_max = 1e-6
+    Wp = 1.0
+    rp_min = 6378.0
+    m_scaling = 1.0
+    n_scaling = 4.0
+    r_scaling = 2.0
+    k_pen = 100.0
+
+    # Helper: compute ForwardDiff gradient for comparison
+    function _fd_gradient(oe_vec, oeT_vec, W_vec, max_rates)
+        function Q_func(x)
+            QLaw.compute_Q_from_vec_with_rates(
+                x,
+                oeT_vec,
+                W_vec,
+                max_rates,
+                Wp,
+                rp_min,
+                m_scaling,
+                n_scaling,
+                r_scaling,
+                k_pen,
+            )
+        end
+        return ForwardDiff.gradient(Q_func, oe_vec)
+    end
+
+    @testset "LEO → GEO: moderate eccentricity, inclined" begin
+        kep0 = Keplerian(7000.0, 0.1, 0.5, 0.0, 0.0, 1.0)
+        kepT = Keplerian(42000.0, 0.001, 0.001, 0.0, 0.0, 0.0)
+        oe0 = ModEq(kep0, μ)
+        oeT = ModEq(kepT, μ)
+
+        a0 = QLaw.get_sma(oe0)
+        aT = QLaw.get_sma(oeT)
+        oe_vec = SVector{5}(a0, oe0.f, oe0.g, oe0.h, oe0.k)
+        oeT_vec = SVector{5}(aT, oeT.f, oeT.g, oeT.h, oeT.k)
+        W_vec = SVector{5}(1.0, 1.0, 1.0, 1.0, 1.0)
+
+        max_rates =
+            QLaw.compute_max_rates_analytical(a0, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
+
+        dQ_analytical = compute_dQ_doe_analytical(
+            oe_vec,
+            oeT_vec,
+            W_vec,
+            max_rates,
+            Wp,
+            rp_min,
+            m_scaling,
+            n_scaling,
+            r_scaling,
+            k_pen,
+        )
+        dQ_ad = _fd_gradient(oe_vec, oeT_vec, W_vec, max_rates)
+
+        for i = 1:5
+            @test dQ_analytical[i] ≈ dQ_ad[i] rtol=1e-10
+        end
+    end
+
+    @testset "GTO → GEO: high eccentricity" begin
+        kep0 = Keplerian(24505.9, 0.725, 0.5, 0.0, 0.0, 0.5)
+        kepT = Keplerian(42165.0, 0.001, 0.001, 0.0, 0.0, 0.0)
+        oe0 = ModEq(kep0, μ)
+        oeT = ModEq(kepT, μ)
+
+        a0 = QLaw.get_sma(oe0)
+        aT = QLaw.get_sma(oeT)
+        oe_vec = SVector{5}(a0, oe0.f, oe0.g, oe0.h, oe0.k)
+        oeT_vec = SVector{5}(aT, oeT.f, oeT.g, oeT.h, oeT.k)
+        W_vec = SVector{5}(1.0, 1.0, 1.0, 1.0, 1.0)
+
+        max_rates =
+            QLaw.compute_max_rates_analytical(a0, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
+
+        dQ_analytical = compute_dQ_doe_analytical(
+            oe_vec,
+            oeT_vec,
+            W_vec,
+            max_rates,
+            Wp,
+            rp_min,
+            m_scaling,
+            n_scaling,
+            r_scaling,
+            k_pen,
+        )
+        dQ_ad = _fd_gradient(oe_vec, oeT_vec, W_vec, max_rates)
+
+        for i = 1:5
+            @test dQ_analytical[i] ≈ dQ_ad[i] rtol=1e-10
+        end
+    end
+
+    @testset "Near-circular, near-equatorial (edge case)" begin
+        kep0 = Keplerian(7000.0, 1e-6, 1e-6, 0.0, 0.0, 0.0)
+        kepT = Keplerian(42000.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        oe0 = ModEq(kep0, μ)
+        oeT = ModEq(kepT, μ)
+
+        a0 = QLaw.get_sma(oe0)
+        aT = QLaw.get_sma(oeT)
+        oe_vec = SVector{5}(a0, oe0.f, oe0.g, oe0.h, oe0.k)
+        oeT_vec = SVector{5}(aT, oeT.f, oeT.g, oeT.h, oeT.k)
+        W_vec = SVector{5}(1.0, 1.0, 1.0, 1.0, 1.0)
+
+        max_rates =
+            QLaw.compute_max_rates_analytical(a0, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
+
+        dQ_analytical = compute_dQ_doe_analytical(
+            oe_vec,
+            oeT_vec,
+            W_vec,
+            max_rates,
+            Wp,
+            rp_min,
+            m_scaling,
+            n_scaling,
+            r_scaling,
+            k_pen,
+        )
+        dQ_ad = _fd_gradient(oe_vec, oeT_vec, W_vec, max_rates)
+
+        for i = 1:5
+            @test dQ_analytical[i] ≈ dQ_ad[i] rtol=1e-8
+        end
+    end
+
+    @testset "At target orbit (δ ≈ 0, gradient ≈ 0)" begin
+        kep0 = Keplerian(42000.0, 0.001, 0.001, 0.0, 0.0, 0.0)
+        kepT = Keplerian(42000.0, 0.001, 0.001, 0.0, 0.0, 0.0)
+        oe0 = ModEq(kep0, μ)
+        oeT = ModEq(kepT, μ)
+
+        a0 = QLaw.get_sma(oe0)
+        aT = QLaw.get_sma(oeT)
+        oe_vec = SVector{5}(a0, oe0.f, oe0.g, oe0.h, oe0.k)
+        oeT_vec = SVector{5}(aT, oeT.f, oeT.g, oeT.h, oeT.k)
+        W_vec = SVector{5}(1.0, 1.0, 1.0, 1.0, 1.0)
+
+        max_rates =
+            QLaw.compute_max_rates_analytical(a0, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
+
+        dQ_analytical = compute_dQ_doe_analytical(
+            oe_vec,
+            oeT_vec,
+            W_vec,
+            max_rates,
+            Wp,
+            rp_min,
+            m_scaling,
+            n_scaling,
+            r_scaling,
+            k_pen,
+        )
+        dQ_ad = _fd_gradient(oe_vec, oeT_vec, W_vec, max_rates)
+
+        for i = 1:5
+            @test dQ_analytical[i] ≈ dQ_ad[i] atol=1e-15
+        end
+    end
+
+    @testset "Non-uniform weights" begin
+        kep0 = Keplerian(7000.0, 0.1, 0.5, 0.0, 0.0, 1.0)
+        kepT = Keplerian(42000.0, 0.001, 0.001, 0.0, 0.0, 0.0)
+        oe0 = ModEq(kep0, μ)
+        oeT = ModEq(kepT, μ)
+
+        a0 = QLaw.get_sma(oe0)
+        aT = QLaw.get_sma(oeT)
+        oe_vec = SVector{5}(a0, oe0.f, oe0.g, oe0.h, oe0.k)
+        oeT_vec = SVector{5}(aT, oeT.f, oeT.g, oeT.h, oeT.k)
+        W_vec = SVector{5}(0.1, 0.8, 0.7, 0.4, 0.9)
+
+        max_rates =
+            QLaw.compute_max_rates_analytical(a0, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
+
+        dQ_analytical = compute_dQ_doe_analytical(
+            oe_vec,
+            oeT_vec,
+            W_vec,
+            max_rates,
+            Wp,
+            rp_min,
+            m_scaling,
+            n_scaling,
+            r_scaling,
+            k_pen,
+        )
+        dQ_ad = _fd_gradient(oe_vec, oeT_vec, W_vec, max_rates)
+
+        for i = 1:5
+            @test dQ_analytical[i] ≈ dQ_ad[i] rtol=1e-10
+        end
+    end
+
+    @testset "Zero penalty weight (Wp = 0)" begin
+        kep0 = Keplerian(7000.0, 0.1, 0.5, 0.0, 0.0, 1.0)
+        kepT = Keplerian(42000.0, 0.001, 0.001, 0.0, 0.0, 0.0)
+        oe0 = ModEq(kep0, μ)
+        oeT = ModEq(kepT, μ)
+
+        a0 = QLaw.get_sma(oe0)
+        aT = QLaw.get_sma(oeT)
+        oe_vec = SVector{5}(a0, oe0.f, oe0.g, oe0.h, oe0.k)
+        oeT_vec = SVector{5}(aT, oeT.f, oeT.g, oeT.h, oeT.k)
+        W_vec = SVector{5}(1.0, 1.0, 1.0, 1.0, 1.0)
+
+        max_rates =
+            QLaw.compute_max_rates_analytical(a0, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
+
+        dQ_analytical = compute_dQ_doe_analytical(
+            oe_vec,
+            oeT_vec,
+            W_vec,
+            max_rates,
+            0.0,
+            rp_min,
+            m_scaling,
+            n_scaling,
+            r_scaling,
+            k_pen,
+        )
+        dQ_ad = ForwardDiff.gradient(oe_vec) do x
+            QLaw.compute_Q_from_vec_with_rates(
+                x,
+                oeT_vec,
+                W_vec,
+                max_rates,
+                0.0,
+                rp_min,
+                m_scaling,
+                n_scaling,
+                r_scaling,
+                k_pen,
+            )
+        end
+
+        for i = 1:5
+            @test dQ_analytical[i] ≈ dQ_ad[i] rtol=1e-10
+        end
+    end
+
+    @testset "Low periapsis (strong penalty gradient)" begin
+        # Orbit with periapsis near rp_min — penalty should contribute large gradient
+        kep0 = Keplerian(6500.0, 0.05, 0.1, 0.0, 0.0, 0.0)
+        kepT = Keplerian(42000.0, 0.001, 0.001, 0.0, 0.0, 0.0)
+        oe0 = ModEq(kep0, μ)
+        oeT = ModEq(kepT, μ)
+
+        a0 = QLaw.get_sma(oe0)
+        aT = QLaw.get_sma(oeT)
+        oe_vec = SVector{5}(a0, oe0.f, oe0.g, oe0.h, oe0.k)
+        oeT_vec = SVector{5}(aT, oeT.f, oeT.g, oeT.h, oeT.k)
+        W_vec = SVector{5}(1.0, 1.0, 1.0, 1.0, 1.0)
+
+        max_rates =
+            QLaw.compute_max_rates_analytical(a0, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
+
+        dQ_analytical = compute_dQ_doe_analytical(
+            oe_vec,
+            oeT_vec,
+            W_vec,
+            max_rates,
+            Wp,
+            rp_min,
+            m_scaling,
+            n_scaling,
+            r_scaling,
+            k_pen,
+        )
+        dQ_ad = _fd_gradient(oe_vec, oeT_vec, W_vec, max_rates)
+
+        for i = 1:5
+            @test dQ_analytical[i] ≈ dQ_ad[i] rtol=1e-10
+        end
+    end
+end
+
+@testset "Analytical D1,D2,D3 vs ForwardDiff-based" begin
+    μ = 398600.4418
+    F_max = 1e-6
+
+    # Helper: compute D coefficients using ForwardDiff (the old method)
+    function _fd_Qdot_coefficients(oe, oeT, weights, μ, F_max, Wp, rp_min)
+        T = Float64
+        a = QLaw.get_sma(oe)
+        aT = QLaw.get_sma(oeT)
+
+        max_rates = QLaw.compute_max_rates_analytical(a, oe.f, oe.g, oe.h, oe.k, μ, F_max)
+        oeT_vec = SVector{5,T}(aT, oeT.f, oeT.g, oeT.h, oeT.k)
+        W_vec = SVector{5,T}(weights.Wa, weights.Wf, weights.Wg, weights.Wh, weights.Wk)
+
+        function Q_func(oe_vec)
+            QLaw.compute_Q_from_vec_with_rates(
+                oe_vec,
+                oeT_vec,
+                W_vec,
+                max_rates,
+                Wp,
+                rp_min,
+            )
+        end
+
+        oe_vec = SVector{5,T}(a, oe.f, oe.g, oe.h, oe.k)
+        dQ_doe = ForwardDiff.gradient(Q_func, oe_vec)
+
+        A = equinoctial_gve_partials(oe, μ)
+
+        D1 = zero(T)
+        D2 = zero(T)
+        D3 = zero(T)
+        for i = 1:5
+            D1 += dQ_doe[i] * A[i, 2]
+            D2 += dQ_doe[i] * A[i, 1]
+            D3 += dQ_doe[i] * A[i, 3]
+        end
+        return (D1 * F_max, D2 * F_max, D3 * F_max)
+    end
+
+    @testset "LEO → GEO transfer" begin
+        kep0 = Keplerian(7000.0, 0.1, 0.5, 0.0, 0.0, 1.0)
+        kepT = Keplerian(42000.0, 0.001, 0.001, 0.0, 0.0, 0.0)
+        oe0 = ModEq(kep0, μ)
+        oeT = ModEq(kepT, μ)
+        weights = QLawWeights()
+
+        D1, D2, D3 =
+            QLaw.compute_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
+        D1_fd, D2_fd, D3_fd =
+            _fd_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
+
+        @test D1 ≈ D1_fd rtol=1e-10
+        @test D2 ≈ D2_fd rtol=1e-10
+        @test D3 ≈ D3_fd rtol=1e-10
+    end
+
+    @testset "GTO → GEO transfer" begin
+        kep0 = Keplerian(24505.9, 0.725, 0.5, 0.0, 0.0, 0.5)
+        kepT = Keplerian(42165.0, 0.001, 0.001, 0.0, 0.0, 0.0)
+        oe0 = ModEq(kep0, μ)
+        oeT = ModEq(kepT, μ)
+        weights = QLawWeights(0.1, 0.8, 0.7, 0.4, 0.9)
+
+        D1, D2, D3 =
+            QLaw.compute_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
+        D1_fd, D2_fd, D3_fd =
+            _fd_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
+
+        @test D1 ≈ D1_fd rtol=1e-10
+        @test D2 ≈ D2_fd rtol=1e-10
+        @test D3 ≈ D3_fd rtol=1e-10
+    end
+
+    @testset "Near-circular orbit" begin
+        kep0 = Keplerian(7000.0, 1e-6, 1e-6, 0.0, 0.0, 0.0)
+        kepT = Keplerian(42000.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+        oe0 = ModEq(kep0, μ)
+        oeT = ModEq(kepT, μ)
+        weights = QLawWeights()
+
+        D1, D2, D3 =
+            QLaw.compute_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
+        D1_fd, D2_fd, D3_fd =
+            _fd_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
+
+        @test D1 ≈ D1_fd rtol=1e-8
+        @test D2 ≈ D2_fd rtol=1e-8
+        @test D3 ≈ D3_fd rtol=1e-8
+    end
+
+    @testset "Thrust direction unchanged" begin
+        # Verify that the switch to analytical gradient doesn't change thrust direction
+        kep0 = Keplerian(7000.0, 0.1, 0.5, 0.0, 0.0, 1.0)
+        kepT = Keplerian(42000.0, 0.001, 0.001, 0.0, 0.0, 0.0)
+        oe0 = ModEq(kep0, μ)
+        oeT = ModEq(kepT, μ)
+        weights = QLawWeights()
+
+        D1, D2, D3 =
+            QLaw.compute_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
+        α, β, Qdot = compute_thrust_direction(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
+
+        # Angles should match D coefficients
+        @test α ≈ atan(-D2, -D1) rtol=1e-10
+        D12 = sqrt(D1^2 + D2^2)
+        @test β ≈ atan(-D3, D12) rtol=1e-10
+
+        # Qdot should match evaluation at optimal direction
+        Qdot_check = D1*cos(β)*cos(α) + D2*cos(β)*sin(α) + D3*sin(β)
+        @test Qdot ≈ Qdot_check rtol=1e-10
+    end
+end

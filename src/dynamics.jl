@@ -131,19 +131,40 @@ function qlaw_eom(u::AbstractVector, ps::ComponentVector, t::Number, problem::QL
 
     μ = ps.μ
 
-    # Convert to Cartesian for force model evaluation
+    # Convert to Cartesian for force model evaluation (Q-law frame)
     cart = Cartesian(oe, μ)
     cart_vec = SVector(cart[1], cart[2], cart[3], cart[4], cart[5], cart[6])
+
+    # Rotate spacecraft state from Q-law frame to inertial frame for force models.
+    # Varga's Θrot rotates the system about Z; two-body and J2 are invariant,
+    # but third-body positions (Sun, Moon) are fixed in the inertial frame,
+    # so force models must see the correct inertial-frame spacecraft position.
+    Θrot = problem.params.Θrot
+    pos_qlaw = SVector{3}(cart_vec[1], cart_vec[2], cart_vec[3])
+    vel_qlaw = SVector{3}(cart_vec[4], cart_vec[5], cart_vec[6])
+    pos_inertial = apply_frame_rotation(pos_qlaw, -Θrot)  # Q-law → inertial
+    vel_inertial = apply_frame_rotation(vel_qlaw, -Θrot)
+    cart_vec_inertial = SVector(
+        pos_inertial[1],
+        pos_inertial[2],
+        pos_inertial[3],
+        vel_inertial[1],
+        vel_inertial[2],
+        vel_inertial[3],
+    )
 
     # Get perturbation accelerations in inertial frame from AstroForceModels
     # (excluding central body gravity, which is handled by GVE)
     acc_inertial =
-        build_dynamics_model(cart_vec, ps, t, problem.dynamics_model) -
-        acceleration(cart_vec, ps, t, KeplerianGravityAstroModel(; μ = μ))
+        build_dynamics_model(cart_vec_inertial, ps, t, problem.dynamics_model) -
+        acceleration(cart_vec_inertial, ps, t, KeplerianGravityAstroModel(; μ = μ))
 
-    # Transform to RTN frame
+    # Rotate perturbation acceleration from inertial back to Q-law frame
+    acc_qlaw_frame = apply_frame_rotation(acc_inertial, Θrot)  # inertial → Q-law
+
+    # Transform to RTN frame (defined by Q-law frame orbit)
     R_rtn = RTN_frame(cart_vec)
-    acc_rtn = R_rtn * acc_inertial
+    acc_rtn = R_rtn * acc_qlaw_frame
 
     # Get sun position for shadow calculation (with Varga Θrot frame rotation)
     sun_pos = get_sun_position(ps, t, problem.sun_model; Θrot = problem.params.Θrot)

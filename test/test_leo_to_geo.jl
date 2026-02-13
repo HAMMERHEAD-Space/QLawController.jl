@@ -51,7 +51,8 @@
         oeT_vec = [a_tgt, oeT.f, oeT.g, oeT.h, oeT.k]
         W_vec = [0.0785, 0.7926, 0.6876, 0.3862, 0.5]
 
-        max_rates = QLaw.compute_max_rates(oe0, μ, F_max)
+        max_rates =
+            QLaw.compute_max_rates_analytical(a_curr, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
         S = QLaw.compute_scaling(oe0, oeT)
 
         # Match implementation: only include terms where max_rates[i] > eps

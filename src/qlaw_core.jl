@@ -11,6 +11,7 @@ export compute_max_rates
 export compute_scaling
 export compute_penalty
 export compute_Q, compute_Q_from_vec
+export compute_dQ_doe_analytical
 export compute_Qdot_coefficients, compute_thrust_direction, thrust_direction_to_rtn
 export compute_effectivity
 export compute_thrust_and_effectivity
@@ -431,6 +432,142 @@ function compute_Q_from_vec_with_rates(
 end
 
 """
+    compute_dQ_doe_analytical(oe_vec, oeT_vec, W_vec, max_rates, Wp, rp_min, ...)
+
+Analytical gradient ∂Q/∂oe where oe = [a, f, g, h, k].
+
+Computes the exact same result as `ForwardDiff.gradient` of
+`compute_Q_from_vec_with_rates`, but without AD overhead.
+
+`max_rates` is treated as a constant (not differentiated through),
+consistent with standard Q-Law practice (Varga Eq. 21).
+
+# Derivation
+Q = (1 + Wp·P) · Σᵢ Wᵢ·Sᵢ·((oeᵢ - oeTᵢ)/rateᵢ)²
+
+By the product rule:
+  ∂Q/∂oeⱼ = Wp·(∂P/∂oeⱼ)·Qsum + (1 + Wp·P)·(∂Qsum/∂oeⱼ)
+
+where Qsum = Σᵢ Wᵢ·Sᵢ·((oeᵢ - oeTᵢ)/rateᵢ)².
+
+- P = exp(k·(1 - rp/rp_min)) with rp = a·(1-e), e = √(f²+g²+ε²)
+- Sa = (1 + (|a-aT|/(m·aT))ⁿ)^(1/r); Sf = Sg = Sh = Sk = 1
+
+Returns `SVector{5}` gradient [∂Q/∂a, ∂Q/∂f, ∂Q/∂g, ∂Q/∂h, ∂Q/∂k].
+"""
+function compute_dQ_doe_analytical(
+    oe_vec::SVector{5,T},
+    oeT_vec::SVector{5,Tt},
+    W_vec::SVector{5,Tw},
+    max_rates::SVector{5,Tr},
+    Wp::Number,
+    rp_min::Number,
+    m_scaling::Number = 1.0,
+    n_scaling::Number = 4.0,
+    r_scaling::Number = 2.0,
+    k_pen::Number = 100.0,
+) where {T,Tt,Tw,Tr}
+
+    a, f, g, h, k = oe_vec[1], oe_vec[2], oe_vec[3], oe_vec[4], oe_vec[5]
+    aT = T(oeT_vec[1])
+
+    # Type-converted parameters
+    _k_pen = T(k_pen)
+    _rp_min = T(rp_min)
+    _m_s = T(m_scaling)
+    _n_s = T(n_scaling)
+    _r_s = T(r_scaling)
+    _Wp = T(Wp)
+
+    # ---- Regularized eccentricity (matches compute_penalty) ----
+    e_reg = sqrt(f^2 + g^2 + eps(T)^2)
+
+    # ---- Penalty function P (Varga Eq. 9) ----
+    # P = exp(k_pen * (1 - rp / rp_min)),  rp = a * (1 - e)
+    rp = a * (one(T) - e_reg)
+    P = exp(_k_pen * (one(T) - rp / _rp_min))
+
+    # ∂P/∂a:  ∂rp/∂a = (1-e), so ∂P/∂a = P · k_pen · (-(1-e)/rp_min)
+    dP_da = -P * _k_pen * (one(T) - e_reg) / _rp_min
+    # ∂P/∂f:  ∂rp/∂f = -a·∂e/∂f = -a·f/e, so ∂P/∂f = P · k_pen · a·f/(rp_min·e)
+    dP_df = P * _k_pen * a * f / (_rp_min * e_reg)
+    # ∂P/∂g:  same structure as f
+    dP_dg = P * _k_pen * a * g / (_rp_min * e_reg)
+    # P does not depend on h or k
+
+    # ---- Scaling function Sa (Varga Eq. 8) ----
+    # Sa = (1 + u^n)^(1/r),  u = |a - aT| / (m · aT)
+    Δa = a - aT
+    u = abs(Δa) / (_m_s * aT)
+    v = u^_n_s                              # u^n
+    Sa = (one(T) + v)^(one(T) / _r_s)      # (1 + u^n)^(1/r)
+
+    # ∂Sa/∂a = (n/r) · sign(Δa)/(m·aT) · u^(n-1) · (1+v)^(1/r - 1)
+    # When Δa = 0: sign(0) = 0 → dSa_da = 0.  When n > 1 and u = 0: u^(n-1) = 0.
+    dSa_da =
+        (_n_s / _r_s) * sign(Δa) / (_m_s * aT) *
+        u^(_n_s - one(T)) *
+        (one(T) + v)^(one(T) / _r_s - one(T))
+
+    # Sf = Sg = Sh = Sk = 1 (no derivatives)
+
+    # ---- Per-element Q contributions (Qsum) and their derivatives ----
+    Qsum = zero(T)
+    dQsum_da = zero(T)
+    dQsum_df = zero(T)
+    dQsum_dg = zero(T)
+    dQsum_dh = zero(T)
+    dQsum_dk = zero(T)
+
+    # Element 1 (a):  Q₁ = Wa · Sa · (δa / ra)²
+    if max_rates[1] > eps(Tr)
+        ra = max_rates[1]
+        δa = Δa
+        Qsum += W_vec[1] * Sa * (δa / ra)^2
+        # ∂Q₁/∂a = Wa · (∂Sa/∂a · δa² + Sa · 2·δa) / ra²
+        dQsum_da = W_vec[1] * (dSa_da * δa^2 + Sa * T(2) * δa) / ra^2
+    end
+
+    # Elements 2-5 (f, g, h, k):  Qᵢ = Wᵢ · (δᵢ / rᵢ)²   (Sᵢ = 1)
+    if max_rates[2] > eps(Tr)
+        δf = f - T(oeT_vec[2])
+        Qsum += W_vec[2] * (δf / max_rates[2])^2
+        dQsum_df = T(2) * W_vec[2] * δf / max_rates[2]^2
+    end
+
+    if max_rates[3] > eps(Tr)
+        δg = g - T(oeT_vec[3])
+        Qsum += W_vec[3] * (δg / max_rates[3])^2
+        dQsum_dg = T(2) * W_vec[3] * δg / max_rates[3]^2
+    end
+
+    if max_rates[4] > eps(Tr)
+        δh = h - T(oeT_vec[4])
+        Qsum += W_vec[4] * (δh / max_rates[4])^2
+        dQsum_dh = T(2) * W_vec[4] * δh / max_rates[4]^2
+    end
+
+    if max_rates[5] > eps(Tr)
+        δk = k - T(oeT_vec[5])
+        Qsum += W_vec[5] * (δk / max_rates[5])^2
+        dQsum_dk = T(2) * W_vec[5] * δk / max_rates[5]^2
+    end
+
+    # ---- Full gradient via product rule ----
+    # Q = (1 + Wp·P) · Qsum
+    # ∂Q/∂oeⱼ = Wp·(∂P/∂oeⱼ)·Qsum + (1 + Wp·P)·(∂Qsum/∂oeⱼ)
+    pf = one(T) + _Wp * P   # penalty factor
+
+    dQ_da = _Wp * dP_da * Qsum + pf * dQsum_da
+    dQ_df = _Wp * dP_df * Qsum + pf * dQsum_df
+    dQ_dg = _Wp * dP_dg * Qsum + pf * dQsum_dg
+    dQ_dh = pf * dQsum_dh    # P independent of h
+    dQ_dk = pf * dQsum_dk    # P independent of k
+
+    return SVector{5,T}(dQ_da, dQ_df, dQ_dg, dQ_dh, dQ_dk)
+end
+
+"""
     compute_Q_from_vec(oe_vec, L, oeT_vec, W_vec, μ, F_max, Wp, rp_min)
 
 Core Q computation working directly with element vectors (a, f, g, h, k).
@@ -463,8 +600,11 @@ function compute_Q_from_vec(
 
     a, f, g, h, k = oe_vec[1], oe_vec[2], oe_vec[3], oe_vec[4], oe_vec[5]
 
-    # Compute max rates over entire orbit (constant for this orbit shape)
-    max_rates = compute_max_rates(a, f, g, h, k, T(L), μ, F_max)
+    # Compute max rates using analytical formulas (Varga Eqs. 14-18).
+    # Consistent with compute_Qdot_coefficients, which also uses analytical rates
+    # so that the Q function being minimized by the controller is the same one
+    # used for convergence diagnostics.
+    max_rates = compute_max_rates_analytical(a, f, g, h, k, μ, F_max)
 
     return compute_Q_from_vec_with_rates(
         oe_vec,
@@ -611,35 +751,24 @@ function compute_Qdot_coefficients(
     # ensuring the ODE integrator sees a smooth RHS.
     max_rates = compute_max_rates_analytical(a, oe.f, oe.g, oe.h, oe.k, μ, F_max)
 
-    # Precompute target and weight vectors (constants for AD)
+    # Precompute target and weight vectors
     oeT_vec = SVector{5,T}(aT, oeT.f, oeT.g, oeT.h, oeT.k)
     W_vec = SVector{5,T}(weights.Wa, weights.Wf, weights.Wg, weights.Wh, weights.Wk)
 
-    # Capture scaling params for closure (constants for AD)
-    _m_scaling = m_scaling
-    _n_scaling = n_scaling
-    _r_scaling = r_scaling
-    _k_pen = k_pen
-
-    # Compute ∂Q/∂oe using ForwardDiff
-    # max_rates is treated as CONSTANT (not differentiated through)
-    function Q_func(oe_vec)
-        return compute_Q_from_vec_with_rates(
-            oe_vec,
-            oeT_vec,
-            W_vec,
-            max_rates,
-            Wp,
-            rp_min,
-            _m_scaling,
-            _n_scaling,
-            _r_scaling,
-            _k_pen,
-        )
-    end
-
+    # Compute ∂Q/∂oe analytically (max_rates treated as CONSTANT)
     oe_vec = SVector{5,T}(a, oe.f, oe.g, oe.h, oe.k)
-    dQ_doe = ForwardDiff.gradient(Q_func, oe_vec)
+    dQ_doe = compute_dQ_doe_analytical(
+        oe_vec,
+        oeT_vec,
+        W_vec,
+        max_rates,
+        Wp,
+        rp_min,
+        m_scaling,
+        n_scaling,
+        r_scaling,
+        k_pen,
+    )
 
     # Get A matrix (∂oe/∂F) at current position
     A = equinoctial_gve_partials(oe, μ)

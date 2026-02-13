@@ -2,6 +2,7 @@ using QLaw
 
 using AstroCoords
 using AstroForceModels
+using ForwardDiff
 using LinearAlgebra
 using StaticArrays
 using Test
