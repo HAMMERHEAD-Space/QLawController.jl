@@ -12,11 +12,11 @@
         e_sq = f^2 + g^2
 
         # p = a(1 - e²)
-        p = QLaw.a_to_p(a_original, f, g)
+        p = QLawController.a_to_p(a_original, f, g)
         @test p ≈ a_original * (1 - e_sq)
 
         # Roundtrip: a → p → a
-        a_recovered = QLaw.p_to_a(p, f, g)
+        a_recovered = QLawController.p_to_a(p, f, g)
         @test a_recovered ≈ a_original
     end
 
@@ -27,7 +27,7 @@
         kep = Keplerian(a_input, e_input, 0.5, 0.0, 0.0, 0.0)
         oe = ModEq(kep, μ)
 
-        a_computed = QLaw.get_sma(oe)
+        a_computed = QLawController.get_sma(oe)
         @test a_computed ≈ a_input rtol=1e-10
     end
 
@@ -38,14 +38,14 @@
         # At periapsis (true anomaly = 0, ω = 0 → L = 0)
         kep_peri = Keplerian(a, e, 0.0, 0.0, 0.0, 0.0)
         oe_peri = ModEq(kep_peri, μ)
-        r_peri = QLaw.compute_radius(oe_peri)
+        r_peri = QLawController.compute_radius(oe_peri)
         r_peri_expected = a * (1 - e)
         @test r_peri ≈ r_peri_expected rtol=1e-10
 
         # At apoapsis (true anomaly = π)
         kep_apo = Keplerian(a, e, 0.0, 0.0, 0.0, π)
         oe_apo = ModEq(kep_apo, μ)
-        r_apo = QLaw.compute_radius(oe_apo)
+        r_apo = QLawController.compute_radius(oe_apo)
         r_apo_expected = a * (1 + e)
         @test r_apo ≈ r_apo_expected rtol=1e-10
     end
@@ -116,9 +116,9 @@ end
         oeT = ModEq(kepT, μ)
 
         # Compute expected Q manually
-        a0, aT = QLaw.get_sma(oe0), QLaw.get_sma(oeT)
-        max_rates = QLaw.compute_max_rates(oe0, μ, F_max)
-        S = QLaw.compute_scaling(oe0, oeT)
+        a0, aT = QLawController.get_sma(oe0), QLawController.get_sma(oeT)
+        max_rates = QLawController.compute_max_rates(oe0, μ, F_max)
+        S = QLawController.compute_scaling(oe0, oeT)
 
         # Q = W_a * S_a * ((a - aT) / ȧ_max)²
         Q_expected = 1.0 * S[1] * ((a0 - aT) / max_rates[1])^2
@@ -142,7 +142,7 @@ end
 
         k = 100.0  # From implementation
         P_expected = exp(k * (1 - rp / rp_min))
-        P_computed = QLaw.compute_penalty(oe, rp_min)
+        P_computed = QLawController.compute_penalty(oe, rp_min)
 
         @test P_computed ≈ P_expected rtol=1e-10
     end
@@ -163,7 +163,7 @@ end
         Q_with_penalty = compute_Q(oe, oeT, weights, μ, F_max, 1.0, rp_min)
 
         # Q_with = Q_no * (1 + Wp * P)
-        P = QLaw.compute_penalty(oe, rp_min)
+        P = QLawController.compute_penalty(oe, rp_min)
         @test Q_with_penalty ≈ Q_no_penalty * (1 + 1.0 * P) rtol=1e-10
     end
 end
@@ -184,7 +184,7 @@ end
 
         # Get D coefficients directly
         D1, D2, D3 =
-            QLaw.compute_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
+            QLawController.compute_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
 
         # Compute expected angles
         α_expected = atan(-D2, -D1)
@@ -207,7 +207,7 @@ end
         weights = QLawWeights()
 
         D1, D2, D3 =
-            QLaw.compute_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
+            QLawController.compute_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
         α, β, Qdot = compute_thrust_direction(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
 
         Qdot_expected = D1*cos(β)*cos(α) + D2*cos(β)*sin(α) + D3*sin(β)
@@ -217,7 +217,7 @@ end
 
     @testset "RTN vector is unit vector" begin
         α, β = 0.3, 0.2
-        u = QLaw.thrust_direction_to_rtn(α, β)
+        u = QLawController.thrust_direction_to_rtn(α, β)
 
         # cos²β*sin²α + cos²β*cos²α + sin²β = cos²β(sin²α + cos²α) + sin²β = cos²β + sin²β = 1
         @test norm(u) ≈ 1.0 atol=1e-15
@@ -225,7 +225,7 @@ end
 
     @testset "RTN vector formula" begin
         α, β = 0.3, 0.2
-        u = QLaw.thrust_direction_to_rtn(α, β)
+        u = QLawController.thrust_direction_to_rtn(α, β)
 
         # Fr = cos(β)*sin(α), Fθ = cos(β)*cos(α), Fh = sin(β)
         @test u[1] ≈ cos(β) * sin(α) atol=1e-15
@@ -316,7 +316,7 @@ end
         η_tr = 0.1
         μ_smooth = 1e-4
 
-        act = QLaw.effectivity_activation(η, η_tr, μ_smooth)
+        act = QLawController.effectivity_activation(η, η_tr, μ_smooth)
         act_expected = 0.5 * (1 + tanh((η - η_tr) / μ_smooth))
 
         @test act ≈ act_expected rtol=1e-10
@@ -324,7 +324,7 @@ end
 
     @testset "At threshold: activation = 0.5 (since tanh(0) = 0)" begin
         η_tr = 0.1
-        act = QLaw.effectivity_activation(η_tr, η_tr, 1e-4)
+        act = QLawController.effectivity_activation(η_tr, η_tr, 1e-4)
         @test act ≈ 0.5 rtol=1e-10
     end
 
@@ -333,11 +333,11 @@ end
         μ_smooth = 1e-4
 
         # Far below threshold: tanh(-large) → -1, so act → 0
-        act_low = QLaw.effectivity_activation(0.0, η_tr, μ_smooth)
+        act_low = QLawController.effectivity_activation(0.0, η_tr, μ_smooth)
         @test act_low < 0.01
 
         # Far above threshold: tanh(+large) → +1, so act → 1
-        act_high = QLaw.effectivity_activation(0.2, η_tr, μ_smooth)
+        act_high = QLawController.effectivity_activation(0.2, η_tr, μ_smooth)
         @test act_high > 0.99
     end
 end
@@ -351,10 +351,10 @@ end
         oe = ModEq(kep, μ)
         F_max = 1e-6
 
-        A = QLaw.equinoctial_gve_partials(oe, μ)
-        a = QLaw.get_sma(oe)
+        A = QLawController.equinoctial_gve_partials(oe, μ)
+        a = QLawController.get_sma(oe)
         max_rates_at_L =
-            QLaw.compute_max_rates_at_L(a, oe.f, oe.g, oe.h, oe.k, oe.L, μ, F_max)
+            QLawController.compute_max_rates_at_L(a, oe.f, oe.g, oe.h, oe.k, oe.L, μ, F_max)
 
         for i = 1:5
             expected = F_max * norm(SVector{3}(A[i, 1], A[i, 2], A[i, 3]))
@@ -370,14 +370,14 @@ end
         oe = ModEq(kep, μ)
         F_max = 1e-6
 
-        max_rates_orbit = QLaw.compute_max_rates(oe, μ, F_max)
-        a = QLaw.get_sma(oe)
+        max_rates_orbit = QLawController.compute_max_rates(oe, μ, F_max)
+        a = QLawController.get_sma(oe)
 
         # Check at multiple L values - rates should be same order of magnitude
         for L_deg in [0, 45, 90, 135, 180, 225, 270, 315]
             L_rad = deg2rad(Float64(L_deg))
             max_rates_at_L =
-                QLaw.compute_max_rates_at_L(a, oe.f, oe.g, oe.h, oe.k, L_rad, μ, F_max)
+                QLawController.compute_max_rates_at_L(a, oe.f, oe.g, oe.h, oe.k, L_rad, μ, F_max)
             for i = 1:5
                 # Orbit-wide max must be >= rate at any single L
                 @test max_rates_orbit[i] >= max_rates_at_L[i] * (1.0 - 1e-10)
@@ -394,8 +394,8 @@ end
         kep = Keplerian(7000.0, 0.1, 0.5, 0.0, 0.0, 0.0)
         oe = ModEq(kep, μ)
 
-        rates_1 = QLaw.compute_max_rates(oe, μ, 1e-6)
-        rates_2 = QLaw.compute_max_rates(oe, μ, 2e-6)
+        rates_1 = QLawController.compute_max_rates(oe, μ, 1e-6)
+        rates_2 = QLawController.compute_max_rates(oe, μ, 2e-6)
 
         @test rates_2 ≈ 2.0 .* rates_1 rtol=1e-10
     end
@@ -411,13 +411,13 @@ end
         F_max = 1e-6
 
         # At L=90°, the single-L max rate for h would be ~0 (dh/dFh ∝ cos(L) = 0)
-        a = QLaw.get_sma(oe)
+        a = QLawController.get_sma(oe)
         max_rates_at_90 =
-            QLaw.compute_max_rates_at_L(a, oe.f, oe.g, oe.h, oe.k, deg2rad(90.0), μ, F_max)
+            QLawController.compute_max_rates_at_L(a, oe.f, oe.g, oe.h, oe.k, deg2rad(90.0), μ, F_max)
         @test max_rates_at_90[4] < 1e-12  # h rate is ~0 at L=90°
 
         # But orbit-wide max rate for h should be non-zero (max at L=0° or L=180°)
-        max_rates_orbit = QLaw.compute_max_rates(oe, μ, F_max)
+        max_rates_orbit = QLawController.compute_max_rates(oe, μ, F_max)
         @test max_rates_orbit[4] > 1e-10  # h rate over orbit is definitely non-zero
     end
 end
@@ -431,9 +431,9 @@ end
         oe0 = ModEq(kep0, μ)
         oeT = ModEq(kepT, μ)
 
-        a0, aT = QLaw.get_sma(oe0), QLaw.get_sma(oeT)
+        a0, aT = QLawController.get_sma(oe0), QLawController.get_sma(oeT)
 
-        S = QLaw.compute_scaling(oe0, oeT)
+        S = QLawController.compute_scaling(oe0, oeT)
         # Varga Eq. 8: Sa = [1 + (|a - at|/(m*at))^n]^(1/r)
         # With defaults: m=1, n=4, r=2 → sqrt(1 + (|a-aT|/aT)^4)
         Sa_expected = sqrt(1 + (abs(a0 - aT) / aT)^4)
@@ -447,7 +447,7 @@ end
         oe0 = ModEq(kep0, μ)
         oeT = ModEq(kepT, μ)
 
-        S = QLaw.compute_scaling(oe0, oeT)
+        S = QLawController.compute_scaling(oe0, oeT)
 
         @test S[2] == 1.0  # Sf
         @test S[3] == 1.0  # Sg
@@ -459,7 +459,7 @@ end
         kep = Keplerian(42000.0, 0.001, 0.001, 0.0, 0.0, 0.0)
         oe = ModEq(kep, μ)
 
-        S = QLaw.compute_scaling(oe, oe)
+        S = QLawController.compute_scaling(oe, oe)
         @test S[1] == 1.0
     end
 end
@@ -471,7 +471,7 @@ end
         kep = Keplerian(7000.0, 0.0, 0.0, 0.0, 0.0, 0.0)  # rp = 7000 km
         oe = ModEq(kep, μ)
 
-        P = QLaw.compute_penalty(oe, 6378.0)  # rp_min = 6378 km
+        P = QLawController.compute_penalty(oe, 6378.0)  # rp_min = 6378 km
         # Smooth penalty: exp(100*(1 - 7000/6378)) ≈ 5.8e-5
         # Very small but not exactly zero (smooth for AD)
         @test P < 1e-3
@@ -487,7 +487,7 @@ end
         kep = Keplerian(a, e, 0.0, 0.0, 0.0, 0.0)
         oe = ModEq(kep, μ)
 
-        P = QLaw.compute_penalty(oe, rp_min)
+        P = QLawController.compute_penalty(oe, rp_min)
         P_expected = exp(k * (1 - rp / rp_min))
 
         @test P ≈ P_expected rtol=1e-10
@@ -501,7 +501,7 @@ end
         kep = Keplerian(42164.0, 0.001, 0.01, 0.0, 0.0, 0.0)
         oe = ModEq(kep, μ)
 
-        @test QLaw.check_convergence(oe, oe) == true
+        @test QLawController.check_convergence(oe, oe) == true
     end
 
     @testset "Large a mismatch → not converged" begin
@@ -510,7 +510,7 @@ end
         oe0 = ModEq(kep0, μ)
         oeT = ModEq(kepT, μ)
 
-        @test QLaw.check_convergence(oe0, oeT) == false
+        @test QLawController.check_convergence(oe0, oeT) == false
     end
 
     @testset "Tolerance respected (paper criteria: summed normalized error)" begin
@@ -522,8 +522,8 @@ end
         oe_close = ModEq(kep_close, μ)
 
         # Normalized a error = |42584 - 42164| / 42164 ≈ 0.01
-        @test QLaw.check_convergence(oe_close, oeT; tol = 0.05) == true   # 0.01 < 0.05 → converged
-        @test QLaw.check_convergence(oe_close, oeT; tol = 0.005) == false # 0.01 > 0.005 → not converged
+        @test QLawController.check_convergence(oe_close, oeT; tol = 0.05) == true   # 0.01 < 0.05 → converged
+        @test QLawController.check_convergence(oe_close, oeT; tol = 0.005) == false # 0.01 > 0.005 → not converged
     end
 
     @testset "SummedErrorConvergence explicit dispatch" begin
@@ -535,20 +535,20 @@ end
         crit_loose = SummedErrorConvergence(0.05)
         crit_tight = SummedErrorConvergence(0.005)
 
-        @test QLaw.check_convergence(oe_close, oeT, crit_loose) == true
-        @test QLaw.check_convergence(oe_close, oeT, crit_tight) == false
+        @test QLawController.check_convergence(oe_close, oeT, crit_loose) == true
+        @test QLawController.check_convergence(oe_close, oeT, crit_tight) == false
 
         # Default tolerance is 0.05
         crit_default = SummedErrorConvergence()
         @test crit_default.tol == 0.05
-        @test QLaw.check_convergence(oe_close, oeT, crit_default) == true
+        @test QLawController.check_convergence(oe_close, oeT, crit_default) == true
     end
 
     @testset "MaxElementConvergence: identical elements → converged" begin
         kep = Keplerian(42164.0, 0.001, 0.01, 0.0, 0.0, 0.0)
         oe = ModEq(kep, μ)
 
-        @test QLaw.check_convergence(oe, oe, MaxElementConvergence(0.01)) == true
+        @test QLawController.check_convergence(oe, oe, MaxElementConvergence(0.01)) == true
     end
 
     @testset "MaxElementConvergence: 1% a error within tolerance" begin
@@ -558,8 +558,8 @@ end
         oe_close = ModEq(kep_close, μ)
 
         # max element error is ~0.01 (from a), so tol=0.02 should pass, tol=0.005 should fail
-        @test QLaw.check_convergence(oe_close, oeT, MaxElementConvergence(0.02)) == true
-        @test QLaw.check_convergence(oe_close, oeT, MaxElementConvergence(0.005)) == false
+        @test QLawController.check_convergence(oe_close, oeT, MaxElementConvergence(0.02)) == true
+        @test QLawController.check_convergence(oe_close, oeT, MaxElementConvergence(0.005)) == false
     end
 
     @testset "MaxElementConvergence: catches single-element violation" begin
@@ -572,9 +572,9 @@ end
 
         # Relative f error = |0.32 - 0.3| / 0.3 ≈ 0.067
         # Max element: 0.067 > 0.05 → not converged
-        @test QLaw.check_convergence(oe_off, oeT, MaxElementConvergence(0.05)) == false
+        @test QLawController.check_convergence(oe_off, oeT, MaxElementConvergence(0.05)) == false
         # With looser tolerance: 0.067 < 0.1 → converged
-        @test QLaw.check_convergence(oe_off, oeT, MaxElementConvergence(0.1)) == true
+        @test QLawController.check_convergence(oe_off, oeT, MaxElementConvergence(0.1)) == true
     end
 
     @testset "MaxElementConvergence: default tolerance" begin
@@ -591,7 +591,7 @@ end
         params = QLawParameters(; convergence_criterion = MaxElementConvergence(0.01))
 
         # Identical elements → converged
-        @test QLaw.check_convergence(oe, oe, weights, μ, F_max, params) == true
+        @test QLawController.check_convergence(oe, oe, weights, μ, F_max, params) == true
     end
 
     @testset "MaxElementConvergence: weight-aware skips free elements" begin
@@ -606,12 +606,12 @@ end
         params = QLawParameters(; convergence_criterion = MaxElementConvergence(0.01))
 
         # Max error among targeted elements: err_a = 0.005 < 0.01 → converged
-        @test QLaw.check_convergence(oe_close, oeT, weights, μ, F_max, params) == true
+        @test QLawController.check_convergence(oe_close, oeT, weights, μ, F_max, params) == true
 
         # With all elements targeted: eccentricity errors dominate → not converged
         weights_all = QLawWeights(1.0)
         params_all = QLawParameters(; convergence_criterion = MaxElementConvergence(0.01))
-        @test QLaw.check_convergence(oe_close, oeT, weights_all, μ, F_max, params_all) ==
+        @test QLawController.check_convergence(oe_close, oeT, weights_all, μ, F_max, params_all) ==
               false
     end
 
@@ -624,7 +624,7 @@ end
         params = QLawParameters(; convergence_criterion = VargaConvergence(1.0))
 
         # Q ≈ 0 at target → Q_normalized ≈ 0 → below any Rc * √(ΣW) threshold
-        @test QLaw.check_convergence(
+        @test QLawController.check_convergence(
             oe,
             oe,
             weights,
@@ -646,7 +646,7 @@ end
         params = QLawParameters(; convergence_criterion = VargaConvergence(1.0))
 
         # Large orbit change → Q_normalized >> Rc * √(ΣW) → not converged
-        @test QLaw.check_convergence(
+        @test QLawController.check_convergence(
             oe0,
             oeT,
             weights,
@@ -668,14 +668,14 @@ end
         params = QLawParameters()
 
         # Q_normalized at 0.5% error should be a moderate value
-        Q_val = QLaw.compute_Q(oe_close, oeT, weights, μ, F_max, params)
-        aT = QLaw.get_sma(oeT)
+        Q_val = QLawController.compute_Q(oe_close, oeT, weights, μ, F_max, params)
+        aT = QLawController.get_sma(oeT)
         Q_norm = Q_val * μ / aT^3
         @test Q_norm > 0.0
 
         # Very large Rc should converge
         W_sum = weights.Wa + weights.Wf + weights.Wg + weights.Wh + weights.Wk
-        @test QLaw.check_convergence(
+        @test QLawController.check_convergence(
             oe_close,
             oeT,
             weights,
@@ -686,7 +686,7 @@ end
         ) == true
 
         # Very small Rc should not converge
-        @test QLaw.check_convergence(
+        @test QLawController.check_convergence(
             oe_close,
             oeT,
             weights,
@@ -712,7 +712,7 @@ end
         params = QLawParameters()
 
         # At 0.1% error, should converge with Rc=1 (close to target)
-        @test QLaw.check_convergence(
+        @test QLawController.check_convergence(
             oe_close,
             oeT,
             weights,
@@ -723,7 +723,7 @@ end
         ) == true
 
         # At initial LEO, should NOT converge with Rc=1
-        @test QLaw.check_convergence(
+        @test QLawController.check_convergence(
             oe0,
             oeT,
             weights,
@@ -743,12 +743,12 @@ end
 
         # Dispatch through params (no explicit criterion argument)
         params_varga = QLawParameters(; convergence_criterion = VargaConvergence(1.0))
-        @test QLaw.check_convergence(oe, oe, weights, μ, F_max, params_varga) == true
+        @test QLawController.check_convergence(oe, oe, weights, μ, F_max, params_varga) == true
 
         # SummedError dispatch through params
         params_summed =
             QLawParameters(; convergence_criterion = SummedErrorConvergence(0.05))
-        @test QLaw.check_convergence(oe, oe, weights, μ, F_max, params_summed) == true
+        @test QLawController.check_convergence(oe, oe, weights, μ, F_max, params_summed) == true
     end
 
     @testset "VargaConvergence: default Rc" begin
@@ -855,7 +855,7 @@ end
             50,
             AbsoluteEffectivity(),
         )
-        activation = QLaw.effectivity_activation(η, η_threshold, η_smoothness)
+        activation = QLawController.effectivity_activation(η, η_threshold, η_smoothness)
 
         if activation > 0.5
             thrusting_count += 1
@@ -922,7 +922,7 @@ end
         kep_at_L = Keplerian(6878.0, 0.0, deg2rad(28.5), 0.0, 0.0, L_rad)
         oe_at_L = ModEq(kep_at_L, μ)
 
-        γ = QLaw.compute_sunlight_fraction(oe_at_L, μ, sun_pos, Conical())
+        γ = QLawController.compute_sunlight_fraction(oe_at_L, μ, sun_pos, Conical())
         push!(γ_values, γ)
     end
 
@@ -961,7 +961,7 @@ end
         L_rad = deg2rad(Float64(L_deg))
         oe = ModEq(p0, 0.0, 0.0, h0, 0.0, L_rad)
 
-        D1, D2, D3 = QLaw.compute_Qdot_coefficients(oe, oeT, weights, μ, F_max, Wp, rp_min)
+        D1, D2, D3 = QLawController.compute_Qdot_coefficients(oe, oeT, weights, μ, F_max, Wp, rp_min)
         push!(D1_values, D1)
         push!(D2_values, D2)
         push!(D3_values, D3)
@@ -1013,11 +1013,11 @@ end
 
     # Test with full sunlight (γ = 1)
     a_thrust_sun, throttle_sun, _, _ =
-        QLaw.qlaw_thrust_acceleration(oe0, oeT, m, sc, weights, params, μ, 1.0)
+        QLawController.qlaw_thrust_acceleration(oe0, oeT, m, sc, weights, params, μ, 1.0)
 
     # Test with eclipse (γ = 0)
     a_thrust_eclipse, throttle_eclipse, _, _ =
-        QLaw.qlaw_thrust_acceleration(oe0, oeT, m, sc, weights, params, μ, 0.0)
+        QLawController.qlaw_thrust_acceleration(oe0, oeT, m, sc, weights, params, μ, 0.0)
 
     # In eclipse, thrust should be zero
     @test norm(a_thrust_eclipse) ≈ 0.0 atol=1e-15
@@ -1025,7 +1025,7 @@ end
 
     # Test with partial sunlight (γ = 0.5)
     a_thrust_partial, throttle_partial, _, _ =
-        QLaw.qlaw_thrust_acceleration(oe0, oeT, m, sc, weights, params, μ, 0.5)
+        QLawController.qlaw_thrust_acceleration(oe0, oeT, m, sc, weights, params, μ, 0.5)
 
     # Partial sunlight should give partial thrust (if activation > 0)
     if throttle_sun > 0
@@ -1043,11 +1043,11 @@ end
     # LEO circular orbit at 28.5° inclination
     kep = Keplerian(6878.0, 0.0, deg2rad(28.5), 0.0, 0.0, 0.0)
     oe = ModEq(kep, μ)
-    a = QLaw.get_sma(oe)
+    a = QLawController.get_sma(oe)
 
     # Analytical max_rates from Varga formulas
     max_rates_analytical =
-        QLaw.compute_max_rates_analytical(a, oe.f, oe.g, oe.h, oe.k, μ, F_max)
+        QLawController.compute_max_rates_analytical(a, oe.f, oe.g, oe.h, oe.k, μ, F_max)
 
     # Numerical max_rates from searching over L
     n_points = 100
@@ -1055,7 +1055,7 @@ end
     for i = 0:(n_points-1)
         L_test = 2π * i / n_points
         rates_at_L =
-            QLaw.compute_max_rates_at_L(a, oe.f, oe.g, oe.h, oe.k, L_test, μ, F_max)
+            QLawController.compute_max_rates_at_L(a, oe.f, oe.g, oe.h, oe.k, L_test, μ, F_max)
         for j = 1:5
             max_rates_numerical[j] = max(max_rates_numerical[j], rates_at_L[j])
         end
@@ -1080,12 +1080,12 @@ end
     oe0 = ModEq(kep0, μ)
     oeT = ModEq(kepT, μ)
 
-    a0 = QLaw.get_sma(oe0)
-    aT = QLaw.get_sma(oeT)
+    a0 = QLawController.get_sma(oe0)
+    aT = QLawController.get_sma(oeT)
 
     # Compute individual terms
-    max_rates = QLaw.compute_max_rates(oe0, μ, F_max)
-    scaling = QLaw.compute_scaling(oe0, oeT)
+    max_rates = QLawController.compute_max_rates(oe0, μ, F_max)
+    scaling = QLawController.compute_scaling(oe0, oeT)
 
     # Normalized squared errors (before weighting)
     term_a = scaling[1] * ((a0 - aT) / max_rates[1])^2
@@ -1119,7 +1119,7 @@ end
     # Helper: compute ForwardDiff gradient for comparison
     function _fd_gradient(oe_vec, oeT_vec, W_vec, max_rates)
         function Q_func(x)
-            QLaw.compute_Q_from_vec_with_rates(
+            QLawController.compute_Q_from_vec_with_rates(
                 x,
                 oeT_vec,
                 W_vec,
@@ -1141,14 +1141,14 @@ end
         oe0 = ModEq(kep0, μ)
         oeT = ModEq(kepT, μ)
 
-        a0 = QLaw.get_sma(oe0)
-        aT = QLaw.get_sma(oeT)
+        a0 = QLawController.get_sma(oe0)
+        aT = QLawController.get_sma(oeT)
         oe_vec = SVector{5}(a0, oe0.f, oe0.g, oe0.h, oe0.k)
         oeT_vec = SVector{5}(aT, oeT.f, oeT.g, oeT.h, oeT.k)
         W_vec = SVector{5}(1.0, 1.0, 1.0, 1.0, 1.0)
 
         max_rates =
-            QLaw.compute_max_rates_analytical(a0, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
+            QLawController.compute_max_rates_analytical(a0, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
 
         dQ_analytical = compute_dQ_doe_analytical(
             oe_vec,
@@ -1175,14 +1175,14 @@ end
         oe0 = ModEq(kep0, μ)
         oeT = ModEq(kepT, μ)
 
-        a0 = QLaw.get_sma(oe0)
-        aT = QLaw.get_sma(oeT)
+        a0 = QLawController.get_sma(oe0)
+        aT = QLawController.get_sma(oeT)
         oe_vec = SVector{5}(a0, oe0.f, oe0.g, oe0.h, oe0.k)
         oeT_vec = SVector{5}(aT, oeT.f, oeT.g, oeT.h, oeT.k)
         W_vec = SVector{5}(1.0, 1.0, 1.0, 1.0, 1.0)
 
         max_rates =
-            QLaw.compute_max_rates_analytical(a0, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
+            QLawController.compute_max_rates_analytical(a0, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
 
         dQ_analytical = compute_dQ_doe_analytical(
             oe_vec,
@@ -1209,14 +1209,14 @@ end
         oe0 = ModEq(kep0, μ)
         oeT = ModEq(kepT, μ)
 
-        a0 = QLaw.get_sma(oe0)
-        aT = QLaw.get_sma(oeT)
+        a0 = QLawController.get_sma(oe0)
+        aT = QLawController.get_sma(oeT)
         oe_vec = SVector{5}(a0, oe0.f, oe0.g, oe0.h, oe0.k)
         oeT_vec = SVector{5}(aT, oeT.f, oeT.g, oeT.h, oeT.k)
         W_vec = SVector{5}(1.0, 1.0, 1.0, 1.0, 1.0)
 
         max_rates =
-            QLaw.compute_max_rates_analytical(a0, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
+            QLawController.compute_max_rates_analytical(a0, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
 
         dQ_analytical = compute_dQ_doe_analytical(
             oe_vec,
@@ -1243,14 +1243,14 @@ end
         oe0 = ModEq(kep0, μ)
         oeT = ModEq(kepT, μ)
 
-        a0 = QLaw.get_sma(oe0)
-        aT = QLaw.get_sma(oeT)
+        a0 = QLawController.get_sma(oe0)
+        aT = QLawController.get_sma(oeT)
         oe_vec = SVector{5}(a0, oe0.f, oe0.g, oe0.h, oe0.k)
         oeT_vec = SVector{5}(aT, oeT.f, oeT.g, oeT.h, oeT.k)
         W_vec = SVector{5}(1.0, 1.0, 1.0, 1.0, 1.0)
 
         max_rates =
-            QLaw.compute_max_rates_analytical(a0, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
+            QLawController.compute_max_rates_analytical(a0, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
 
         dQ_analytical = compute_dQ_doe_analytical(
             oe_vec,
@@ -1277,14 +1277,14 @@ end
         oe0 = ModEq(kep0, μ)
         oeT = ModEq(kepT, μ)
 
-        a0 = QLaw.get_sma(oe0)
-        aT = QLaw.get_sma(oeT)
+        a0 = QLawController.get_sma(oe0)
+        aT = QLawController.get_sma(oeT)
         oe_vec = SVector{5}(a0, oe0.f, oe0.g, oe0.h, oe0.k)
         oeT_vec = SVector{5}(aT, oeT.f, oeT.g, oeT.h, oeT.k)
         W_vec = SVector{5}(0.1, 0.8, 0.7, 0.4, 0.9)
 
         max_rates =
-            QLaw.compute_max_rates_analytical(a0, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
+            QLawController.compute_max_rates_analytical(a0, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
 
         dQ_analytical = compute_dQ_doe_analytical(
             oe_vec,
@@ -1311,14 +1311,14 @@ end
         oe0 = ModEq(kep0, μ)
         oeT = ModEq(kepT, μ)
 
-        a0 = QLaw.get_sma(oe0)
-        aT = QLaw.get_sma(oeT)
+        a0 = QLawController.get_sma(oe0)
+        aT = QLawController.get_sma(oeT)
         oe_vec = SVector{5}(a0, oe0.f, oe0.g, oe0.h, oe0.k)
         oeT_vec = SVector{5}(aT, oeT.f, oeT.g, oeT.h, oeT.k)
         W_vec = SVector{5}(1.0, 1.0, 1.0, 1.0, 1.0)
 
         max_rates =
-            QLaw.compute_max_rates_analytical(a0, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
+            QLawController.compute_max_rates_analytical(a0, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
 
         dQ_analytical = compute_dQ_doe_analytical(
             oe_vec,
@@ -1333,7 +1333,7 @@ end
             k_pen,
         )
         dQ_ad = ForwardDiff.gradient(oe_vec) do x
-            QLaw.compute_Q_from_vec_with_rates(
+            QLawController.compute_Q_from_vec_with_rates(
                 x,
                 oeT_vec,
                 W_vec,
@@ -1359,14 +1359,14 @@ end
         oe0 = ModEq(kep0, μ)
         oeT = ModEq(kepT, μ)
 
-        a0 = QLaw.get_sma(oe0)
-        aT = QLaw.get_sma(oeT)
+        a0 = QLawController.get_sma(oe0)
+        aT = QLawController.get_sma(oeT)
         oe_vec = SVector{5}(a0, oe0.f, oe0.g, oe0.h, oe0.k)
         oeT_vec = SVector{5}(aT, oeT.f, oeT.g, oeT.h, oeT.k)
         W_vec = SVector{5}(1.0, 1.0, 1.0, 1.0, 1.0)
 
         max_rates =
-            QLaw.compute_max_rates_analytical(a0, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
+            QLawController.compute_max_rates_analytical(a0, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
 
         dQ_analytical = compute_dQ_doe_analytical(
             oe_vec,
@@ -1395,15 +1395,15 @@ end
     # Helper: compute D coefficients using ForwardDiff (the old method)
     function _fd_Qdot_coefficients(oe, oeT, weights, μ, F_max, Wp, rp_min)
         T = Float64
-        a = QLaw.get_sma(oe)
-        aT = QLaw.get_sma(oeT)
+        a = QLawController.get_sma(oe)
+        aT = QLawController.get_sma(oeT)
 
-        max_rates = QLaw.compute_max_rates_analytical(a, oe.f, oe.g, oe.h, oe.k, μ, F_max)
+        max_rates = QLawController.compute_max_rates_analytical(a, oe.f, oe.g, oe.h, oe.k, μ, F_max)
         oeT_vec = SVector{5,T}(aT, oeT.f, oeT.g, oeT.h, oeT.k)
         W_vec = SVector{5,T}(weights.Wa, weights.Wf, weights.Wg, weights.Wh, weights.Wk)
 
         function Q_func(oe_vec)
-            QLaw.compute_Q_from_vec_with_rates(
+            QLawController.compute_Q_from_vec_with_rates(
                 oe_vec,
                 oeT_vec,
                 W_vec,
@@ -1437,7 +1437,7 @@ end
         weights = QLawWeights()
 
         D1, D2, D3 =
-            QLaw.compute_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
+            QLawController.compute_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
         D1_fd, D2_fd, D3_fd =
             _fd_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
 
@@ -1454,7 +1454,7 @@ end
         weights = QLawWeights(0.1, 0.8, 0.7, 0.4, 0.9)
 
         D1, D2, D3 =
-            QLaw.compute_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
+            QLawController.compute_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
         D1_fd, D2_fd, D3_fd =
             _fd_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
 
@@ -1471,7 +1471,7 @@ end
         weights = QLawWeights()
 
         D1, D2, D3 =
-            QLaw.compute_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
+            QLawController.compute_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
         D1_fd, D2_fd, D3_fd =
             _fd_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
 
@@ -1489,7 +1489,7 @@ end
         weights = QLawWeights()
 
         D1, D2, D3 =
-            QLaw.compute_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
+            QLawController.compute_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
         α, β, Qdot = compute_thrust_direction(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
 
         # Angles should match D coefficients
