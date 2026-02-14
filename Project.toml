@@ -1,4 +1,4 @@
-name = "QLaw"
+name = "QLawController"
 uuid = "abf9877f-367a-4f05-a285-16210808b276"
 authors = ["Jordan Murphy <jmurphy6895@gmail.com> and contributors"]
 version = "0.1.0"

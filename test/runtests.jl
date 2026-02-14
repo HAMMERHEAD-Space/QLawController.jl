@@ -1,4 +1,4 @@
-using QLaw
+using QLawController
 
 using AstroCoords
 using AstroForceModels
@@ -7,7 +7,7 @@ using LinearAlgebra
 using StaticArrays
 using Test
 
-@testset "QLaw.jl" begin
+@testset "QLawController.jl" begin
     include("test_types.jl")
     include("test_core.jl")
     include("test_api.jl")
