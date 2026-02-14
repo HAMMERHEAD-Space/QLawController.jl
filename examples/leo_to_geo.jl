@@ -14,7 +14,7 @@
 #   include("examples/leo_to_geo.jl")
 # =============================================================================
 
-using QLaw
+using QLawController
 
 using AstroCoords
 using AstroForceModels
@@ -202,13 +202,13 @@ prob = qlaw_problem(
 )
 
 println("Initial orbit:")
-println("  Semi-major axis: $(QLaw.get_sma(prob.oe0)) km")
+println("  Semi-major axis: $(QLawController.get_sma(prob.oe0)) km")
 println("  Eccentricity: $(sqrt(prob.oe0.f^2 + prob.oe0.g^2))")
 println("  Inclination: $(rad2deg(2*atan(sqrt(prob.oe0.h^2 + prob.oe0.k^2)))) deg")
 println()
 
 println("Target orbit:")
-println("  Semi-major axis: $(QLaw.get_sma(prob.oeT)) km")
+println("  Semi-major axis: $(QLawController.get_sma(prob.oeT)) km")
 println("  Eccentricity: $(sqrt(prob.oeT.f^2 + prob.oeT.g^2))")
 println("  Inclination: $(rad2deg(2*atan(sqrt(prob.oeT.h^2 + prob.oeT.k^2)))) deg")
 println()
@@ -232,7 +232,7 @@ println("=" ^ 60)
 # Extract trajectory data from ODE solution
 t = sol.trajectory.t ./ 86400.0  # Convert to days
 states = sol.trajectory.u
-a_history = [QLaw.get_sma(ModEq(u[1], u[2], u[3], u[4], u[5], u[6])) for u in states]
+a_history = [QLawController.get_sma(ModEq(u[1], u[2], u[3], u[4], u[5], u[6])) for u in states]
 e_history = [sqrt(u[2]^2 + u[3]^2) for u in states]
 i_history = [rad2deg(2*atan(sqrt(u[4]^2 + u[5]^2))) for u in states]
 m_history = [u[7] for u in states]
@@ -246,7 +246,7 @@ println("  Final mass: $(sol.final_mass) kg")
 println()
 
 println("Final Orbital Elements:")
-println("  Semi-major axis: $(QLaw.get_sma(sol.final_oe)) km (target: $(aT) km)")
+println("  Semi-major axis: $(QLawController.get_sma(sol.final_oe)) km (target: $(aT) km)")
 println("  Eccentricity: $(sqrt(sol.final_oe.f^2 + sol.final_oe.g^2)) (target: $(eT))")
 println(
     "  Inclination: $(rad2deg(2*atan(sqrt(sol.final_oe.h^2 + sol.final_oe.k^2)))) deg (target: $(rad2deg(iT)) deg)",
@@ -284,7 +284,7 @@ end
 ν_revs = ν_cumulative ./ (2π)  # Convert to revolutions
 
 # Target values for classical elements
-aT_val = QLaw.get_sma(oeT)
+aT_val = QLawController.get_sma(oeT)
 eT_val = sqrt(oeT.f^2 + oeT.g^2)
 iT_val = rad2deg(2*atan(sqrt(oeT.h^2 + oeT.k^2)))
 
@@ -302,7 +302,7 @@ println("Computing control history for plots...")
 for (i, u) in enumerate(states)
     oe_i = ModEq(u[1], u[2], u[3], u[4], u[5], u[6])
     m_i = u[7]
-    r_i = QLaw.compute_radius(oe_i)
+    r_i = QLawController.compute_radius(oe_i)
     t_i = sol.trajectory.t[i]  # Time in seconds
 
     # Maximum thrust acceleration at this state [km/s²]
@@ -310,16 +310,16 @@ for (i, u) in enumerate(states)
 
     # Optimal thrust direction (uses params for Wp, rp_min, scaling)
     α_opt, β_opt, _ =
-        QLaw.compute_thrust_direction(oe_i, oeT, weights_doe, μ, F_max_accel, params)
+        QLawController.compute_thrust_direction(oe_i, oeT, weights_doe, μ, F_max_accel, params)
 
     # Compute effectivity to get actual throttle (uses params for all settings)
-    η, _, _, _ = QLaw.compute_effectivity(oe_i, oeT, weights_doe, μ, F_max_accel, params)
-    activation = QLaw.effectivity_activation(η, params.η_threshold, params.η_smoothness)
+    η, _, _, _ = QLawController.compute_effectivity(oe_i, oeT, weights_doe, μ, F_max_accel, params)
+    activation = QLawController.effectivity_activation(η, params.η_threshold, params.η_smoothness)
 
     # Compute sunlight fraction (eclipse)
     JD_i = JD0 + t_i / 86400.0
     sun_pos = sun_model(JD_i, Position())
-    γ = QLaw.compute_sunlight_fraction(oe_i, μ, sun_pos, shadow_model)
+    γ = QLawController.compute_sunlight_fraction(oe_i, μ, sun_pos, shadow_model)
 
     # Total throttle = effectivity * sunlight
     throttle = activation * γ
@@ -598,7 +598,7 @@ for (name, weights, ηth) in [
     )
 
     # Print final orbital elements
-    final_a = QLaw.get_sma(sol_test.final_oe)
+    final_a = QLawController.get_sma(sol_test.final_oe)
     final_e = sqrt(sol_test.final_oe.f^2 + sol_test.final_oe.g^2)
     final_i = rad2deg(2*atan(sqrt(sol_test.final_oe.h^2 + sol_test.final_oe.k^2)))
     println(

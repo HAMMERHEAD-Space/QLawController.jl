@@ -46,14 +46,14 @@
 
         # Verify by computing Q manually from formula
         # Q = Σ Wᵢ * Sᵢ * ((oeᵢ - oeᵢᵀ) / ȯeᵢ_max)² for max_rates[i] > eps
-        a_curr, a_tgt = QLaw.get_sma(oe0), QLaw.get_sma(oeT)
+        a_curr, a_tgt = QLawController.get_sma(oe0), QLawController.get_sma(oeT)
         oe_vec = [a_curr, oe0.f, oe0.g, oe0.h, oe0.k]
         oeT_vec = [a_tgt, oeT.f, oeT.g, oeT.h, oeT.k]
         W_vec = [0.0785, 0.7926, 0.6876, 0.3862, 0.5]
 
         max_rates =
-            QLaw.compute_max_rates_analytical(a_curr, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
-        S = QLaw.compute_scaling(oe0, oeT)
+            QLawController.compute_max_rates_analytical(a_curr, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
+        S = QLawController.compute_scaling(oe0, oeT)
 
         # Match implementation: only include terms where max_rates[i] > eps
         Q_expected = 0.0
@@ -82,7 +82,7 @@
 
         # Verify Qdot = D1*cos(β)*cos(α) + D2*cos(β)*sin(α) + D3*sin(β)
         D1, D2, D3 =
-            QLaw.compute_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
+            QLawController.compute_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
         Qdot_expected = D1*cos(β)*cos(α) + D2*cos(β)*sin(α) + D3*sin(β)
 
         @test Qdot ≈ Qdot_expected rtol=1e-10
@@ -94,7 +94,7 @@
         F_max = max_thrust_acceleration(sc, m0, a0)
 
         α, β, _ = compute_thrust_direction(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
-        u_rtn = QLaw.thrust_direction_to_rtn(α, β)
+        u_rtn = QLawController.thrust_direction_to_rtn(α, β)
 
         # Verify unit vector: ||u|| = 1
         @test norm(u_rtn) ≈ 1.0 atol=1e-15
@@ -171,8 +171,8 @@
         @test prob.μ == μ
         @test prob.m0 == m0
         @test prob.tspan == tspan
-        @test QLaw.get_sma(prob.oe0) ≈ a0 rtol=1e-10
-        @test QLaw.get_sma(prob.oeT) ≈ aT rtol=1e-10
+        @test QLawController.get_sma(prob.oe0) ≈ a0 rtol=1e-10
+        @test QLawController.get_sma(prob.oeT) ≈ aT rtol=1e-10
         @test prob.weights.Wa ≈ 0.0785
         @test prob.params.η_threshold ≈ -0.01
         @test prob.params.rp_min ≈ 6578.0

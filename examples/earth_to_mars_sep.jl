@@ -19,7 +19,7 @@
 #   include("examples/earth_to_mars_sep.jl")
 # =============================================================================
 
-using QLaw
+using QLawController
 
 using AstroCoords
 using AstroForceModels
@@ -161,12 +161,12 @@ println("=" ^ 70)
 t_days = sol.trajectory.t ./ 86400.0
 states = sol.trajectory.u
 
-a_hist = [QLaw.get_sma(ModEq(u[1], u[2], u[3], u[4], u[5], u[6])) for u in states]
+a_hist = [QLawController.get_sma(ModEq(u[1], u[2], u[3], u[4], u[5], u[6])) for u in states]
 e_hist = [sqrt(u[2]^2 + u[3]^2) for u in states]
 i_hist = [rad2deg(2 * atan(sqrt(u[4]^2 + u[5]^2))) for u in states]
 m_hist = [u[7] for u in states]
 
-final_a = QLaw.get_sma(sol.final_oe)
+final_a = QLawController.get_sma(sol.final_oe)
 final_e = sqrt(sol.final_oe.f^2 + sol.final_oe.g^2)
 final_i = rad2deg(2 * atan(sqrt(sol.final_oe.h^2 + sol.final_oe.k^2)))
 
@@ -203,14 +203,14 @@ thrust_hist = Float64[]  # actual thrust acceleration [mm/s²]
 for (idx, u) in enumerate(states)
     oe_i = ModEq(u[1], u[2], u[3], u[4], u[5], u[6])
     m_i = u[7]
-    r_i = QLaw.compute_radius(oe_i)
+    r_i = QLawController.compute_radius(oe_i)
 
     F_max = max_thrust_acceleration(spacecraft, m_i, r_i)
 
     α_opt, β_opt, _ =
-        QLaw.compute_thrust_direction(oe_i, oeT, weights, μ_sun, F_max, params)
-    η, _, _, _ = QLaw.compute_effectivity(oe_i, oeT, weights, μ_sun, F_max, params)
-    activation = QLaw.effectivity_activation(η, params.η_threshold, params.η_smoothness)
+        QLawController.compute_thrust_direction(oe_i, oeT, weights, μ_sun, F_max, params)
+    η, _, _, _ = QLawController.compute_effectivity(oe_i, oeT, weights, μ_sun, F_max, params)
+    activation = QLawController.effectivity_activation(η, params.η_threshold, params.η_smoothness)
 
     push!(α_hist, α_opt)
     push!(β_hist, β_opt)
@@ -230,7 +230,7 @@ for u in states
 end
 
 # Distance from Sun
-r_hist = [QLaw.compute_radius(ModEq(u[1], u[2], u[3], u[4], u[5], u[6])) for u in states]
+r_hist = [QLawController.compute_radius(ModEq(u[1], u[2], u[3], u[4], u[5], u[6])) for u in states]
 
 # =============================================================================
 # Plot 1: Orbital Elements vs Time

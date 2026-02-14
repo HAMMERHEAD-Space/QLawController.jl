@@ -18,7 +18,7 @@
 #   include("examples/leo_to_meo_hifi.jl")
 # =============================================================================
 
-using QLaw
+using QLawController
 
 using AstroCoords
 using AstroForceModels
@@ -208,13 +208,13 @@ println("=" ^ 70)
 t_days = sol.trajectory.t ./ 86400.0
 states = sol.trajectory.u
 
-a_hist = [QLaw.get_sma(ModEq(u[1], u[2], u[3], u[4], u[5], u[6])) for u in states]
+a_hist = [QLawController.get_sma(ModEq(u[1], u[2], u[3], u[4], u[5], u[6])) for u in states]
 e_hist = [sqrt(u[2]^2 + u[3]^2) for u in states]
 i_hist = [rad2deg(2 * atan(sqrt(u[4]^2 + u[5]^2))) for u in states]
 m_hist = [u[7] for u in states]
 
 # Final orbital elements
-final_a = QLaw.get_sma(sol.final_oe)
+final_a = QLawController.get_sma(sol.final_oe)
 final_e = sqrt(sol.final_oe.f^2 + sol.final_oe.g^2)
 final_i = rad2deg(2 * atan(sqrt(sol.final_oe.h^2 + sol.final_oe.k^2)))
 
@@ -252,18 +252,18 @@ thrust_hist = Float64[]
 for (idx, u) in enumerate(states)
     oe_i = ModEq(u[1], u[2], u[3], u[4], u[5], u[6])
     m_i = u[7]
-    r_i = QLaw.compute_radius(oe_i)
+    r_i = QLawController.compute_radius(oe_i)
     t_i = sol.trajectory.t[idx]
 
     F_max = max_thrust_acceleration(spacecraft, m_i, r_i)
 
-    α_opt, β_opt, _ = QLaw.compute_thrust_direction(oe_i, oeT, weights, μ, F_max, params)
-    η, _, _, _ = QLaw.compute_effectivity(oe_i, oeT, weights, μ, F_max, params)
-    activation = QLaw.effectivity_activation(η, params.η_threshold, params.η_smoothness)
+    α_opt, β_opt, _ = QLawController.compute_thrust_direction(oe_i, oeT, weights, μ, F_max, params)
+    η, _, _, _ = QLawController.compute_effectivity(oe_i, oeT, weights, μ, F_max, params)
+    activation = QLawController.effectivity_activation(η, params.η_threshold, params.η_smoothness)
 
     JD_i = JD0 + t_i / 86400.0
     sun_pos = sun_model(JD_i, Position())
-    γ = QLaw.compute_sunlight_fraction(oe_i, μ, sun_pos, shadow)
+    γ = QLawController.compute_sunlight_fraction(oe_i, μ, sun_pos, shadow)
 
     throttle = activation * γ
 
@@ -287,7 +287,7 @@ end
 
 # Altitude history (for drag context)
 alt_hist = [
-    QLaw.compute_radius(ModEq(u[1], u[2], u[3], u[4], u[5], u[6])) - 6378.137 for
+    QLawController.compute_radius(ModEq(u[1], u[2], u[3], u[4], u[5], u[6])) - 6378.137 for
     u in states
 ]
 

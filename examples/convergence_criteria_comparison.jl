@@ -15,7 +15,7 @@
 #   Pkg.instantiate()
 # =============================================================================
 
-using QLaw
+using QLawController
 
 using AstroCoords
 using AstroForceModels
@@ -427,7 +427,7 @@ println("=" ^ 70)
 println("SUMMARY")
 println("=" ^ 70)
 
-a_T = QLaw.get_sma(oeT)
+a_T = QLawController.get_sma(oeT)
 e_T = sqrt(oeT.f^2 + oeT.g^2)
 i_T = 2 * atan(sqrt(oeT.h^2 + oeT.k^2))
 
@@ -438,7 +438,7 @@ for (name, result, sol_opt) in [
 ]
     w = sol_opt.u
     oe = result.final_oe
-    a_f = QLaw.get_sma(oe)
+    a_f = QLawController.get_sma(oe)
     e_f = sqrt(oe.f^2 + oe.g^2)
     i_f = 2 * atan(sqrt(oe.h^2 + oe.k^2))
     t = result.converged ? "$(round(result.elapsed_time / 86400.0, digits=2)) days" : "N/A"

@@ -41,6 +41,6 @@
         prob = qlaw_problem(kep0, kepT, tspan, μ, sc)
 
         @test prob.μ == μ
-        @test QLaw.get_sma(prob.oe0) ≈ 7000.0 rtol=0.01
+        @test QLawController.get_sma(prob.oe0) ≈ 7000.0 rtol=0.01
     end
 end
