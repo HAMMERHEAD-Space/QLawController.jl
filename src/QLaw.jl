@@ -1,4 +1,4 @@
-module QLaw
+module QLawController
 
 using AstroCoords: AstroCoords, ModEq, Keplerian, Cartesian, params
 using AstroForceModels:
