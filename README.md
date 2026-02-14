@@ -1,6 +1,6 @@
-# QLaw.jl
+# QLawController.jl
 
-[![Build Status](https://github.com/HAMMERHEAD-Space/QLaw.jl/actions/workflows/CI.yml/badge.svg?branch=master)](https://github.com/HAMMERHEAD-Space/QLaw.jl/actions/workflows/CI.yml?query=branch%3Amaster)
+[![Build Status](https://github.com/HAMMERHEAD-Space/QLawController.jl/actions/workflows/CI.yml/badge.svg?branch=master)](https://github.com/HAMMERHEAD-Space/QLawController.jl/actions/workflows/CI.yml?query=branch%3Amaster)
 [![Code Style: Blue](https://img.shields.io/badge/code%20style-blue-4495d1.svg)](https://github.com/invenia/BlueStyle)
 
 A Julia package implementing the Q-Law Lyapunov-based feedback control law for low-thrust trajectory optimization. Q-Law provides near-optimal thrust steering for orbit transfers while dramatically reducing the dimensionality of the optimization problem compared to direct methods.
@@ -39,13 +39,13 @@ Based on the formulation from Petropoulos (2003) with enhancements from Varga & 
 
 ```julia
 using Pkg
-Pkg.add("QLaw")
+Pkg.add("QLawController")
 ```
 
 ## Quick Start
 
 ```julia
-using QLaw
+using QLawController
 using AstroCoords
 
 # Earth gravitational parameter
@@ -168,7 +168,7 @@ params = QLawParameters(; convergence_criterion = VargaConvergence(1.0))
 
 ## Weight Optimization
 
-Q-Law performance depends heavily on the choice of weights. QLaw.jl is compatible with Optimization.jl for automated weight tuning.
+Q-Law performance depends heavily on the choice of weights. QLawController.jl is compatible with Optimization.jl for automated weight tuning.
 
 ### Global Search with BlackBoxOptim
 

@@ -13,7 +13,7 @@
 #   Pkg.instantiate()
 # =============================================================================
 
-using QLaw
+using QLawController
 
 using AstroCoords
 using AstroForceModels
