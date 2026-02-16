@@ -1,7 +1,7 @@
 name = "QLawController"
 uuid = "abf9877f-367a-4f05-a285-16210808b276"
-authors = ["Jordan Murphy <jmurphy6895@gmail.com> and contributors"]
 version = "0.1.0"
+authors = ["Jordan Murphy <jmurphy6895@gmail.com> and contributors"]
 
 [deps]
 AstroCoords = "27fb9038-6a9d-4e07-8d5d-d0805b53c4cb"
@@ -18,7 +18,7 @@ StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 
 [compat]
 AstroCoords = "0.3"
-AstroForceModels = "0.3"
+AstroForceModels = "0.3, 0.4"
 AstroPropagators = "0.2"
 ComponentArrays = "0.15"
 ForwardDiff = "1"
