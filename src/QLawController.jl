@@ -6,7 +6,7 @@ using AstroForceModels:
     shadow_model,
     Conical,
     Cylindrical,
-    No_Shadow,
+    NoShadow,
     ShadowModelType,
     build_dynamics_model,
     acceleration,
@@ -16,7 +16,7 @@ using AstroForceModels:
     ThirdBodyModel,
     SunBody,
     Position
-using AstroPropagators: AstroPropagators, RTN_frame
+using AstroPropagators: AstroPropagators, inertial_to_RTN, modified_equinoctial_gve
 using ComponentArrays
 using ForwardDiff
 using LinearAlgebra

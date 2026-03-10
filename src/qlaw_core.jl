@@ -70,81 +70,22 @@ end
 Compute the A matrix for Gauss Variational Equations in equinoctial elements.
 Returns a 6×3 matrix where A[i,j] = ∂(oe_i)/∂(F_j) with F = [Fr, Fθ, Fh].
 
-Note: This uses semi-major axis internally (as per Varga & Perez) but
-accepts ModEq which uses semi-latus rectum p.
+Row 1 gives da/dF (semi-major axis rate), as required by the Q-Law controller
+(Varga & Perez). Rows 2–6 give df, dg, dh, dk, dL rates.
 
-# Returns
-Matrix A where:
-- Column 1: ∂oe/∂Fr (radial)
-- Column 2: ∂oe/∂Fθ (tangential)  
-- Column 3: ∂oe/∂Fh (normal)
+Delegates to `AstroPropagators.modified_equinoctial_gve` (p-based) and converts
+the first row: da/dF = dp/dF / (1 − e²).
 """
 function equinoctial_gve_partials(oe::ModEq{T}, μ::Number) where {T}
-    p, f, g, h, k, L = oe.p, oe.f, oe.g, oe.h, oe.k, oe.L
+    A_p = AstroPropagators.modified_equinoctial_gve(oe.p, oe.f, oe.g, oe.h, oe.k, oe.L, μ)
 
-    # Convert to semi-major axis
-    e_sq = f^2 + g^2
-    a = p / (one(T) - e_sq)
-
-    # Auxiliary quantities
-    q = compute_q(f, g, L)
-    sL, cL = sincos(L)
-
-    # Common factor
-    sqrt_factor = sqrt(a * (one(T) - e_sq) / μ)
-    common = sqrt_factor / q
-
-    # Build A matrix (6×3)
-    # Row 1: da/dF
-    A11 = 2 * a * q * common * (f * sL - g * cL) / (one(T) - e_sq)
-    A12 = 2 * a * q^2 * common / (one(T) - e_sq)
-    A13 = zero(T)
-
-    # Row 2: df/dF
-    A21 = q * common * sL
-    A22 = common * ((q + one(T)) * cL + f)
-    A23 = -common * g * (h * sL - k * cL)
-
-    # Row 3: dg/dF
-    A31 = -q * common * cL
-    A32 = common * ((q + one(T)) * sL + g)
-    A33 = common * f * (h * sL - k * cL)
-
-    # Row 4: dh/dF
-    s_sq = one(T) + h^2 + k^2
-    A41 = zero(T)
-    A42 = zero(T)
-    A43 = common * s_sq * cL / 2
-
-    # Row 5: dk/dF
-    A51 = zero(T)
-    A52 = zero(T)
-    A53 = common * s_sq * sL / 2
-
-    # Row 6: dL/dF
-    A61 = zero(T)
-    A62 = zero(T)
-    A63 = common * (h * sL - k * cL)
+    e_sq = oe.f^2 + oe.g^2
+    inv_factor = one(T) / (one(T) - e_sq)
 
     return SMatrix{6,3,T}(
-        A11,
-        A21,
-        A31,
-        A41,
-        A51,
-        A61,
-        A12,
-        A22,
-        A32,
-        A42,
-        A52,
-        A62,
-        A13,
-        A23,
-        A33,
-        A43,
-        A53,
-        A63,
+        A_p[1,1] * inv_factor, A_p[2,1], A_p[3,1], A_p[4,1], A_p[5,1], A_p[6,1],
+        A_p[1,2] * inv_factor, A_p[2,2], A_p[3,2], A_p[4,2], A_p[5,2], A_p[6,2],
+        A_p[1,3] * inv_factor, A_p[2,3], A_p[3,3], A_p[4,3], A_p[5,3], A_p[6,3],
     )
 end
 
