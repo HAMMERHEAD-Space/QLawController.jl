@@ -18,6 +18,7 @@ using QLawController
 using AstroCoords
 using AstroForceModels
 using Distributions
+using StaticArrays: MMatrix
 using SatelliteToolboxGravityModels
 using SatelliteToolboxTransformations
 using Optimization
@@ -75,15 +76,17 @@ gravity_coeffs = GravityModels.load(IcgemFile, egm96_file)
 
 # Create gravity harmonics model (degree 2, order 0 = J2 only as in paper)
 gravity_model = GravityHarmonicsAstroModel(;
-    gravity_model = gravity_coeffs,
-    eop_data = eop_data,
-    degree = 2,   # J2 (degree 2)
-    order = 0,     # Zonal only (order 0)
+    gravity_model=gravity_coeffs,
+    eop_data=eop_data,
+    degree=2,
+    order=0,
+    P=MMatrix{3,3,Float64}(zeros(3, 3)),
+    dP=MMatrix{3,3,Float64}(zeros(3, 3)),
 )
 
 # Third body models (Moon and Sun)
-moon_model = ThirdBodyModel(; body = MoonBody(), eop_data = eop_data)
-sun_model = ThirdBodyModel(; body = SunBody(), eop_data = eop_data)
+moon_model = ThirdBodyModel(; body=MoonBody(), eop_data=eop_data)
+sun_model = ThirdBodyModel(; body=SunBody(), eop_data=eop_data)
 
 # Combined dynamics model: central body gravity (J2) + Moon + Sun third body
 dynamics_model = CentralBodyDynamicsModel(gravity_model, (moon_model, sun_model))
@@ -111,12 +114,12 @@ function objective(x, p)
     weights = QLawWeights(x[1], x[2], x[3], x[4], x[5])
 
     params = QLawParameters(;
-        Wp = Wp,
-        rp_min = rp_min,
-        η_threshold = x[6],
-        η_smoothness = η_smoothness,
-        effectivity_type = AbsoluteEffectivity(),
-        n_search_points = 50,
+        Wp=Wp,
+        rp_min=rp_min,
+        η_threshold=x[6],
+        η_smoothness=η_smoothness,
+        effectivity_type=AbsoluteEffectivity(),
+        n_search_points=50,
     )
 
     prob = qlaw_problem(
@@ -125,11 +128,11 @@ function objective(x, p)
         tspan,
         μ,
         spacecraft;
-        weights = weights,
-        qlaw_params = params,
-        dynamics_model = dynamics_model,
-        sun_model = sun_model,
-        JD0 = JD0,
+        weights=weights,
+        qlaw_params=params,
+        dynamics_model=dynamics_model,
+        sun_model=sun_model,
+        JD0=JD0,
     )
 
     sol = solve(prob)  # Uses convergence_criterion from params (default: SummedErrorConvergence(0.05))
@@ -149,12 +152,12 @@ function objective_mass(x, p)
     weights = QLawWeights(x[1], x[2], x[3], x[4], x[5])
 
     params = QLawParameters(;
-        Wp = Wp,
-        rp_min = rp_min,
-        η_threshold = x[6],
-        η_smoothness = η_smoothness,
-        effectivity_type = AbsoluteEffectivity(),
-        n_search_points = 50,
+        Wp=Wp,
+        rp_min=rp_min,
+        η_threshold=x[6],
+        η_smoothness=η_smoothness,
+        effectivity_type=AbsoluteEffectivity(),
+        n_search_points=50,
     )
 
     prob = qlaw_problem(
@@ -163,11 +166,11 @@ function objective_mass(x, p)
         tspan,
         μ,
         spacecraft;
-        weights = weights,
-        qlaw_params = params,
-        dynamics_model = dynamics_model,
-        sun_model = sun_model,
-        JD0 = JD0,
+        weights=weights,
+        qlaw_params=params,
+        dynamics_model=dynamics_model,
+        sun_model=sun_model,
+        JD0=JD0,
     )
 
     sol = solve(prob)  # Uses convergence_criterion from params (default: SummedErrorConvergence(0.05))
@@ -208,13 +211,10 @@ println()
 opt_f_bbo = OptimizationFunction(objective)
 # Initial guess: midpoint of bounds
 x0 = lb .+ (ub .- lb) .* 0.5
-opt_prob_bbo = OptimizationProblem(opt_f_bbo, x0, p; lb = lb, ub = ub)
+opt_prob_bbo = OptimizationProblem(opt_f_bbo, x0, p; lb=lb, ub=ub)
 
 @time sol_bbo = Optimization.solve(
-    opt_prob_bbo,
-    BBO_adaptive_de_rand_1_bin_radiuslimited();
-    maxiters = 500,
-    maxtime = 600.0,
+    opt_prob_bbo, BBO_adaptive_de_rand_1_bin_radiuslimited(); maxiters=500, maxtime=600.0
 )
 
 println("\nBlackBoxOptim Results:")
@@ -227,15 +227,16 @@ println("  Optimal ηth: $(round(sol_bbo.u[6], digits=4))")
 println("  Objective value: $(round(sol_bbo.objective, digits=4))")
 
 # Verify result
-weights_bbo =
-    QLawWeights(sol_bbo.u[1], sol_bbo.u[2], sol_bbo.u[3], sol_bbo.u[4], sol_bbo.u[5])
+weights_bbo = QLawWeights(
+    sol_bbo.u[1], sol_bbo.u[2], sol_bbo.u[3], sol_bbo.u[4], sol_bbo.u[5]
+)
 params_bbo = QLawParameters(;
-    Wp = Wp,
-    rp_min = rp_min,
-    η_threshold = sol_bbo.u[6],
-    η_smoothness = η_smoothness,
-    effectivity_type = AbsoluteEffectivity(),
-    n_search_points = 50,
+    Wp=Wp,
+    rp_min=rp_min,
+    η_threshold=sol_bbo.u[6],
+    η_smoothness=η_smoothness,
+    effectivity_type=AbsoluteEffectivity(),
+    n_search_points=50,
 )
 prob_bbo = qlaw_problem(
     oe0,
@@ -243,11 +244,11 @@ prob_bbo = qlaw_problem(
     tspan,
     μ,
     spacecraft;
-    weights = weights_bbo,
-    qlaw_params = params_bbo,
-    dynamics_model = dynamics_model,
-    sun_model = sun_model,
-    JD0 = JD0,
+    weights=weights_bbo,
+    qlaw_params=params_bbo,
+    dynamics_model=dynamics_model,
+    sun_model=sun_model,
+    JD0=JD0,
 )
 result_bbo = solve(prob_bbo)
 println("  Transfer time: $(round(result_bbo.elapsed_time / 86400.0, digits=2)) days")
@@ -279,12 +280,12 @@ println("-" ^ 85)
 for (name, weights, ηth) in paper_results
     # Create params with the correct effectivity threshold
     params_test = QLawParameters(;
-        Wp = Wp,
-        rp_min = rp_min,
-        η_threshold = ηth,
-        η_smoothness = η_smoothness,
-        effectivity_type = AbsoluteEffectivity(),
-        n_search_points = 50,
+        Wp=Wp,
+        rp_min=rp_min,
+        η_threshold=ηth,
+        η_smoothness=η_smoothness,
+        effectivity_type=AbsoluteEffectivity(),
+        n_search_points=50,
     )
 
     prob_test = qlaw_problem(
@@ -293,17 +294,17 @@ for (name, weights, ηth) in paper_results
         tspan,
         μ,
         spacecraft;
-        weights = weights,
-        qlaw_params = params_test,
-        dynamics_model = dynamics_model,
-        sun_model = sun_model,
-        JD0 = JD0,
+        weights=weights,
+        qlaw_params=params_test,
+        dynamics_model=dynamics_model,
+        sun_model=sun_model,
+        JD0=JD0,
     )
     result = solve(prob_test)
 
     time_str =
-        result.converged ? string(round(result.elapsed_time / 86400.0, digits = 2)) : "N/A"
-    mass_str = result.converged ? string(round(result.final_mass, digits = 2)) : "N/A"
+        result.converged ? string(round(result.elapsed_time / 86400.0; digits=2)) : "N/A"
+    mass_str = result.converged ? string(round(result.final_mass; digits=2)) : "N/A"
 
     println(
         "$(rpad(name, 19)) | $(lpad(string(round(ηth, digits=3)), 5)) | $(lpad(time_str, 20)) | $(lpad(mass_str, 15)) | $(result.converged)",
@@ -341,7 +342,7 @@ best_obj = Inf
 best_idx = 0
 results_doe = []
 
-for i = 1:n_samples
+for i in 1:n_samples
     obj_val = objective(samples[i, :], p)
     push!(results_doe, obj_val)
     if obj_val < best_obj
@@ -368,8 +369,8 @@ println("  ηth: $(round(samples[best_idx, 6], digits=4))")
 println("\nRefining with SAMIN from best DOE point...")
 x0_refined = samples[best_idx, :]
 opt_f_refined = OptimizationFunction(objective)
-opt_prob_refined = OptimizationProblem(opt_f_refined, x0_refined, p; lb = lb, ub = ub)
-@time sol_refined = Optimization.solve(opt_prob_refined, SAMIN(); maxiters = 100)
+opt_prob_refined = OptimizationProblem(opt_f_refined, x0_refined, p; lb=lb, ub=ub)
+@time sol_refined = Optimization.solve(opt_prob_refined, SAMIN(); maxiters=100)
 
 println("\nDOE + Refinement Results:")
 println(
@@ -382,19 +383,15 @@ println("  Objective value: $(round(sol_refined.objective, digits=4))")
 
 # Verify result
 weights_refined = QLawWeights(
-    sol_refined.u[1],
-    sol_refined.u[2],
-    sol_refined.u[3],
-    sol_refined.u[4],
-    sol_refined.u[5],
+    sol_refined.u[1], sol_refined.u[2], sol_refined.u[3], sol_refined.u[4], sol_refined.u[5]
 )
 params_refined = QLawParameters(;
-    Wp = Wp,
-    rp_min = rp_min,
-    η_threshold = sol_refined.u[6],
-    η_smoothness = η_smoothness,
-    effectivity_type = AbsoluteEffectivity(),
-    n_search_points = 50,
+    Wp=Wp,
+    rp_min=rp_min,
+    η_threshold=sol_refined.u[6],
+    η_smoothness=η_smoothness,
+    effectivity_type=AbsoluteEffectivity(),
+    n_search_points=50,
 )
 prob_refined = qlaw_problem(
     oe0,
@@ -402,11 +399,11 @@ prob_refined = qlaw_problem(
     tspan,
     μ,
     spacecraft;
-    weights = weights_refined,
-    qlaw_params = params_refined,
-    dynamics_model = dynamics_model,
-    sun_model = sun_model,
-    JD0 = JD0,
+    weights=weights_refined,
+    qlaw_params=params_refined,
+    dynamics_model=dynamics_model,
+    sun_model=sun_model,
+    JD0=JD0,
 )
 result_refined = solve(prob_refined)
 println("  Transfer time: $(round(result_refined.elapsed_time / 86400.0, digits=2)) days")

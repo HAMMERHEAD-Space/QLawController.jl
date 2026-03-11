@@ -174,8 +174,8 @@ struct GridSearch <: AbstractEffectivitySearch end
 """
     RefinedSearch
 
-Find Q̇ extrema using a grid scan followed by Brent's method refinement
-via Optim.jl. More accurate, especially for eccentric orbits where Q̇
+Find Q̇ extrema using a grid scan followed by Brent's method refinement.
+More accurate, especially for eccentric orbits where Q̇
 varies rapidly with true longitude (Varga Section 2.2).
 """
 struct RefinedSearch <: AbstractEffectivitySearch end
@@ -295,19 +295,19 @@ struct QLawParameters{
 end
 
 function QLawParameters(;
-    Wp::Number = 1.0,
-    rp_min::Number = 6578.0,  # Default: LEO altitude
-    k_penalty::Float64 = 100.0,  # Penalty steepness for periapsis constraint (Varga Eq. 9)
-    η_threshold::Number = -0.01,  # Paper: -0.01 for constant thrust (avoids activation disruption near η≈0)
-    η_smoothness::Number = 1e-4,
-    Θrot::Number = 0.0,  # Frame rotation angle [rad] (Varga optimization variable)
-    effectivity_type::AbstractEffectivityType = AbsoluteEffectivity(),
-    effectivity_search::AbstractEffectivitySearch = RefinedSearch(),
-    n_search_points::Int = 50,
-    m_scaling::Float64 = 1.0,  # Varga Eq. 8: scaling parameter m
-    n_scaling::Float64 = 4.0,  # Varga Eq. 8: scaling exponent n
-    r_scaling::Float64 = 2.0,  # Varga Eq. 8: scaling root r
-    convergence_criterion::AbstractConvergenceCriterion = SummedErrorConvergence(),
+    Wp::Number=1.0,
+    rp_min::Number=6578.0,  # Default: LEO altitude
+    k_penalty::Float64=100.0,  # Penalty steepness for periapsis constraint (Varga Eq. 9)
+    η_threshold::Number=-0.01,  # Paper: -0.01 for constant thrust (avoids activation disruption near η≈0)
+    η_smoothness::Number=1e-4,
+    Θrot::Number=0.0,  # Frame rotation angle [rad] (Varga optimization variable)
+    effectivity_type::AbstractEffectivityType=AbsoluteEffectivity(),
+    effectivity_search::AbstractEffectivitySearch=RefinedSearch(),
+    n_search_points::Int=50,
+    m_scaling::Float64=1.0,  # Varga Eq. 8: scaling parameter m
+    n_scaling::Float64=4.0,  # Varga Eq. 8: scaling exponent n
+    r_scaling::Float64=2.0,  # Varga Eq. 8: scaling root r
+    convergence_criterion::AbstractConvergenceCriterion=SummedErrorConvergence(),
 )
     return QLawParameters(
         Wp,
@@ -331,7 +331,7 @@ end
 # =============================================================================
 
 """
-    QLawProblem{OE0,OET,Tm,Tt0,Ttf,Tμ,Tjd,SC,W,P,DM,SM}
+    QLawProblem{OE0,OET,Tm,Tt0,Ttf,Tμ,Tjd,SC,W,P,DM,SDM,SM}
 
 Q-Law transfer problem definition.
 
@@ -346,7 +346,7 @@ Q-Law transfer problem definition.
 - `weights::W`: Q-Law weights
 - `params::P`: Q-Law parameters
 - `dynamics_model::DM`: Force model from AstroForceModels
-- `shadow_model::ShadowModelType`: Eclipse model
+- `shadow_model::SDM`: Eclipse model
 - `sun_model::SM`: Sun ephemeris model (ThirdBodyModel or nothing)
 """
 struct QLawProblem{
@@ -361,6 +361,7 @@ struct QLawProblem{
     W<:QLawWeights,
     P<:QLawParameters,
     DM<:AbstractDynamicsModel,
+    SDM<:ShadowModelType,
     SM,
 }
     oe0::OE0
@@ -373,7 +374,7 @@ struct QLawProblem{
     weights::W
     params::P
     dynamics_model::DM
-    shadow_model::ShadowModelType
+    shadow_model::SDM
     sun_model::SM
 end
 
@@ -403,15 +404,14 @@ function qlaw_problem(
     tspan::Tuple,
     μ::Number,
     spacecraft::AbstractQLawSpacecraft;
-    weights::QLawWeights = QLawWeights(),
-    qlaw_params::QLawParameters = QLawParameters(),
-    dynamics_model::AbstractDynamicsModel = CentralBodyDynamicsModel(
-        KeplerianGravityAstroModel(; μ = μ),
-        (),
+    weights::QLawWeights=QLawWeights(),
+    qlaw_params::QLawParameters=QLawParameters(),
+    dynamics_model::AbstractDynamicsModel=CentralBodyDynamicsModel(
+        KeplerianGravityAstroModel(; μ=μ), ()
     ),
-    shadow_model_type::ShadowModelType = Conical(),
-    sun_model::Union{ThirdBodyModel,Nothing} = nothing,
-    JD0::Number = 2451545.0,
+    shadow_model_type::ShadowModelType=Conical(),
+    sun_model::Union{ThirdBodyModel,Nothing}=nothing,
+    JD0::Number=2451545.0,
 )
     return QLawProblem(
         oe0,
@@ -436,12 +436,12 @@ function qlaw_problem(
     tspan::Tuple,
     μ::Number,
     spacecraft::AbstractQLawSpacecraft;
-    JD0::Number = 2451545.0,
+    JD0::Number=2451545.0,
     kwargs...,
 )
     oe0 = ModEq(koe0, μ)
     oeT = ModEq(koeT, μ)
-    return qlaw_problem(oe0, oeT, tspan, μ, spacecraft; JD0 = JD0, kwargs...)
+    return qlaw_problem(oe0, oeT, tspan, μ, spacecraft; JD0=JD0, kwargs...)
 end
 
 # =============================================================================

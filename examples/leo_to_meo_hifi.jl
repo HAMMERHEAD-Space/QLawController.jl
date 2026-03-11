@@ -24,6 +24,7 @@ using AstroCoords
 using AstroForceModels
 using AstroForceModels: Position, Conical
 using LinearAlgebra
+using StaticArrays: MMatrix
 using SatelliteToolboxGravityModels
 using SatelliteToolboxTransformations
 using Plots
@@ -107,15 +108,17 @@ egm96_file = fetch_icgem_file(:EGM96)
 gravity_coeffs = GravityModels.load(IcgemFile, egm96_file)
 
 gravity_model = GravityHarmonicsAstroModel(;
-    gravity_model = gravity_coeffs,
-    eop_data = eop_data,
-    degree = 36,
-    order = 36,
+    gravity_model=gravity_coeffs,
+    eop_data=eop_data,
+    degree=36,
+    order=36,
+    P=MMatrix{37,37,Float64}(zeros(37, 37)),
+    dP=MMatrix{37,37,Float64}(zeros(37, 37)),
 )
 
 # --- Third-body: Moon and Sun ---
-moon_model = ThirdBodyModel(; body = MoonBody(), eop_data = eop_data)
-sun_model = ThirdBodyModel(; body = SunBody(), eop_data = eop_data)
+moon_model = ThirdBodyModel(; body=MoonBody(), eop_data=eop_data)
+sun_model = ThirdBodyModel(; body=SunBody(), eop_data=eop_data)
 
 # --- Solar Radiation Pressure ---
 # Cannonball model: CR = 1.3 (typical), effective area from equivalent sphere
@@ -124,10 +127,10 @@ sun_model = ThirdBodyModel(; body = SunBody(), eop_data = eop_data)
 sat_srp = CannonballFixedSRP(1.784, m0, 1.3)   # radius [m], mass [kg], CR
 
 srp_model = SRPAstroModel(;
-    satellite_srp_model = sat_srp,
-    sun_data = sun_model,
-    eop_data = eop_data,
-    shadow_model = Conical(),
+    satellite_srp_model=sat_srp,
+    sun_data=sun_model,
+    eop_data=eop_data,
+    shadow_model=Conical(),
 )
 
 # --- Atmospheric Drag ---
@@ -136,14 +139,15 @@ srp_model = SRPAstroModel(;
 sat_drag = CannonballFixedDrag(1.784, m0, 2.2)  # radius [m], mass [kg], CD
 
 drag_model = DragAstroModel(;
-    satellite_drag_model = sat_drag,
-    atmosphere_model = ExpAtmo(),   # Exponential atmosphere (fast, sufficient for Q-Law)
-    eop_data = eop_data,
+    satellite_drag_model=sat_drag,
+    atmosphere_model=ExpAtmo(),   # Exponential atmosphere (fast, sufficient for Q-Law)
+    eop_data=eop_data,
 )
 
 # --- Combined dynamics model ---
-dynamics_model =
-    CentralBodyDynamicsModel(gravity_model, (moon_model, sun_model, srp_model, drag_model))
+dynamics_model = CentralBodyDynamicsModel(
+    gravity_model, (moon_model, sun_model, srp_model, drag_model)
+)
 
 println()
 println("Perturbation environment:")
@@ -163,13 +167,13 @@ weights = QLawWeights(0.0902, 0.8902, 0.9137, 0.9686, 0.9882)
 ηth = -0.01
 
 params = QLawParameters(;
-    Wp = 1.0,
-    rp_min = 6378.137 + 200.0,     # Min periapsis: 200 km altitude
-    η_threshold = ηth,             # Moderate coasting threshold
-    η_smoothness = 1e-4,
-    effectivity_type = AbsoluteEffectivity(),
-    n_search_points = 50,
-    convergence_criterion = SummedErrorConvergence(0.05),
+    Wp=1.0,
+    rp_min=6378.137 + 200.0,     # Min periapsis: 200 km altitude
+    η_threshold=ηth,             # Moderate coasting threshold
+    η_smoothness=1e-4,
+    effectivity_type=AbsoluteEffectivity(),
+    n_search_points=50,
+    convergence_criterion=VargaConvergence(1.0),
 )
 
 # =============================================================================
@@ -183,11 +187,11 @@ prob = qlaw_problem(
     tspan,
     μ,
     spacecraft;
-    weights = weights,
-    qlaw_params = params,
-    dynamics_model = dynamics_model,
-    sun_model = sun_model,
-    JD0 = JD0,
+    weights=weights,
+    qlaw_params=params,
+    dynamics_model=dynamics_model,
+    sun_model=sun_model,
+    JD0=JD0,
 )
 
 println("Solving (this may take several minutes)...")
@@ -257,9 +261,13 @@ for (idx, u) in enumerate(states)
 
     F_max = max_thrust_acceleration(spacecraft, m_i, r_i)
 
-    α_opt, β_opt, _ = QLawController.compute_thrust_direction(oe_i, oeT, weights, μ, F_max, params)
+    α_opt, β_opt, _ = QLawController.compute_thrust_direction(
+        oe_i, oeT, weights, μ, F_max, params
+    )
     η, _, _, _ = QLawController.compute_effectivity(oe_i, oeT, weights, μ, F_max, params)
-    activation = QLawController.effectivity_activation(η, params.η_threshold, params.η_smoothness)
+    activation = QLawController.effectivity_activation(
+        η, params.η_threshold, params.η_smoothness
+    )
 
     JD_i = JD0 + t_i / 86400.0
     sun_pos = sun_model(JD_i, Position())
@@ -297,41 +305,35 @@ alt_hist = [
 println("Generating plots...")
 
 p_a = plot(
-    t_days,
-    a_hist ./ 1e3,
-    ylabel = "a [×10³ km]",
-    label = false,
-    linewidth = 0.5,
-    color = :blue,
+    t_days, a_hist ./ 1e3; ylabel="a [×10³ km]", label=false, linewidth=0.5, color=:blue
 )
-hline!([aT / 1e3], linestyle = :dash, color = :red, linewidth = 1.5, label = "Target")
+hline!([aT / 1e3]; linestyle=:dash, color=:red, linewidth=1.5, label="Target")
 
-p_e = plot(t_days, e_hist, ylabel = "e [-]", label = false, linewidth = 0.5, color = :blue)
-hline!([eT], linestyle = :dash, color = :red, linewidth = 1.5, label = false)
+p_e = plot(t_days, e_hist; ylabel="e [-]", label=false, linewidth=0.5, color=:blue)
+hline!([eT]; linestyle=:dash, color=:red, linewidth=1.5, label=false)
 
-p_i =
-    plot(t_days, i_hist, ylabel = "i [deg]", label = false, linewidth = 0.5, color = :blue)
-hline!([rad2deg(iT)], linestyle = :dash, color = :red, linewidth = 1.5, label = false)
+p_i = plot(t_days, i_hist; ylabel="i [deg]", label=false, linewidth=0.5, color=:blue)
+hline!([rad2deg(iT)]; linestyle=:dash, color=:red, linewidth=1.5, label=false)
 
 p_m = plot(
     t_days,
-    m_hist,
-    xlabel = "Time [days]",
-    ylabel = "Mass [kg]",
-    label = false,
-    linewidth = 1,
-    color = :blue,
+    m_hist;
+    xlabel="Time [days]",
+    ylabel="Mass [kg]",
+    label=false,
+    linewidth=1,
+    color=:blue,
 )
-hline!([m_dry], linestyle = :dash, color = :red, linewidth = 1.5, label = "Dry mass")
+hline!([m_dry]; linestyle=:dash, color=:red, linewidth=1.5, label="Dry mass")
 
 fig_oe = plot(
     p_a,
     p_e,
     p_i,
-    p_m,
-    layout = (2, 2),
-    size = (1100, 750),
-    plot_title = "Orbital Elements — LEO → MEO (Hi-Fi)",
+    p_m;
+    layout=(2, 2),
+    size=(1100, 750),
+    plot_title="Orbital Elements — LEO → MEO (Hi-Fi)",
 )
 savefig(fig_oe, "meo_orbital_elements.png")
 println("  Saved: meo_orbital_elements.png")
@@ -342,50 +344,40 @@ println("  Saved: meo_orbital_elements.png")
 
 p_thr = plot(
     t_days,
-    thrust_hist,
-    ylabel = "Thrust Accel\n[mm/s²]",
-    label = false,
-    linewidth = 0.3,
-    color = :blue,
+    thrust_hist;
+    ylabel="Thrust Accel\n[mm/s²]",
+    label=false,
+    linewidth=0.3,
+    color=:blue,
 )
 
 p_alp = plot(
-    t_days,
-    rad2deg.(α_hist),
-    ylabel = "α* [deg]",
-    label = false,
-    linewidth = 0.3,
-    color = :blue,
+    t_days, rad2deg.(α_hist); ylabel="α* [deg]", label=false, linewidth=0.3, color=:blue
 )
 
 p_bet = plot(
-    t_days,
-    rad2deg.(β_hist),
-    ylabel = "β* [deg]",
-    label = false,
-    linewidth = 0.3,
-    color = :blue,
+    t_days, rad2deg.(β_hist); ylabel="β* [deg]", label=false, linewidth=0.3, color=:blue
 )
 
 p_eta = plot(
     t_days,
-    η_hist,
-    ylabel = "η [-]",
-    xlabel = "Time [days]",
-    label = false,
-    linewidth = 0.3,
-    color = :blue,
+    η_hist;
+    ylabel="η [-]",
+    xlabel="Time [days]",
+    label=false,
+    linewidth=0.3,
+    color=:blue,
 )
-hline!([params.η_threshold], linestyle = :dash, color = :red, linewidth = 1, label = "ηₜₕ")
+hline!([params.η_threshold]; linestyle=:dash, color=:red, linewidth=1, label="ηₜₕ")
 
 fig_ctrl = plot(
     p_thr,
     p_alp,
     p_bet,
-    p_eta,
-    layout = (4, 1),
-    size = (1100, 900),
-    plot_title = "Controls — LEO → MEO (Hi-Fi)",
+    p_eta;
+    layout=(4, 1),
+    size=(1100, 900),
+    plot_title="Controls — LEO → MEO (Hi-Fi)",
 )
 savefig(fig_ctrl, "meo_controls.png")
 println("  Saved: meo_controls.png")
@@ -396,65 +388,53 @@ println("  Saved: meo_controls.png")
 
 p_xy = plot(
     x_hist ./ 1e3,
-    y_hist ./ 1e3,
-    xlabel = "X [×10³ km]",
-    ylabel = "Y [×10³ km]",
-    linewidth = 0.2,
-    color = :blue,
-    legend = false,
-    title = "X-Y (Equatorial)",
-    aspect_ratio = :equal,
+    y_hist ./ 1e3;
+    xlabel="X [×10³ km]",
+    ylabel="Y [×10³ km]",
+    linewidth=0.2,
+    color=:blue,
+    legend=false,
+    title="X-Y (Equatorial)",
+    aspect_ratio=:equal,
 )
-scatter!(
-    [x_hist[1] / 1e3],
-    [y_hist[1] / 1e3],
-    markersize = 4,
-    color = :green,
-    label = "Start",
-)
-scatter!(
-    [x_hist[end] / 1e3],
-    [y_hist[end] / 1e3],
-    markersize = 4,
-    color = :red,
-    label = "End",
-)
+scatter!([x_hist[1] / 1e3], [y_hist[1] / 1e3]; markersize=4, color=:green, label="Start")
+scatter!([x_hist[end] / 1e3], [y_hist[end] / 1e3]; markersize=4, color=:red, label="End")
 
 p_yz = plot(
     y_hist ./ 1e3,
-    z_hist ./ 1e3,
-    xlabel = "Y [×10³ km]",
-    ylabel = "Z [×10³ km]",
-    linewidth = 0.2,
-    color = :blue,
-    legend = false,
-    title = "Y-Z",
-    aspect_ratio = :equal,
+    z_hist ./ 1e3;
+    xlabel="Y [×10³ km]",
+    ylabel="Z [×10³ km]",
+    linewidth=0.2,
+    color=:blue,
+    legend=false,
+    title="Y-Z",
+    aspect_ratio=:equal,
 )
-scatter!([y_hist[1] / 1e3], [z_hist[1] / 1e3], markersize = 4, color = :green)
-scatter!([y_hist[end] / 1e3], [z_hist[end] / 1e3], markersize = 4, color = :red)
+scatter!([y_hist[1] / 1e3], [z_hist[1] / 1e3]; markersize=4, color=:green)
+scatter!([y_hist[end] / 1e3], [z_hist[end] / 1e3]; markersize=4, color=:red)
 
 p_xz = plot(
     x_hist ./ 1e3,
-    z_hist ./ 1e3,
-    xlabel = "X [×10³ km]",
-    ylabel = "Z [×10³ km]",
-    linewidth = 0.2,
-    color = :blue,
-    legend = false,
-    title = "X-Z",
-    aspect_ratio = :equal,
+    z_hist ./ 1e3;
+    xlabel="X [×10³ km]",
+    ylabel="Z [×10³ km]",
+    linewidth=0.2,
+    color=:blue,
+    legend=false,
+    title="X-Z",
+    aspect_ratio=:equal,
 )
-scatter!([x_hist[1] / 1e3], [z_hist[1] / 1e3], markersize = 4, color = :green)
-scatter!([x_hist[end] / 1e3], [z_hist[end] / 1e3], markersize = 4, color = :red)
+scatter!([x_hist[1] / 1e3], [z_hist[1] / 1e3]; markersize=4, color=:green)
+scatter!([x_hist[end] / 1e3], [z_hist[end] / 1e3]; markersize=4, color=:red)
 
 fig_orbit = plot(
     p_xy,
     p_yz,
-    p_xz,
-    layout = (1, 3),
-    size = (1500, 500),
-    plot_title = "Orbit Shape — LEO → MEO (Hi-Fi)",
+    p_xz;
+    layout=(1, 3),
+    size=(1500, 500),
+    plot_title="Orbit Shape — LEO → MEO (Hi-Fi)",
 )
 savefig(fig_orbit, "meo_orbit_shape.png")
 println("  Saved: meo_orbit_shape.png")
@@ -465,40 +445,34 @@ println("  Saved: meo_orbit_shape.png")
 
 p_alt = plot(
     t_days,
-    alt_hist,
-    ylabel = "Altitude [km]",
-    label = false,
-    linewidth = 0.5,
-    color = :blue,
-    title = "Altitude History",
+    alt_hist;
+    ylabel="Altitude [km]",
+    label=false,
+    linewidth=0.5,
+    color=:blue,
+    title="Altitude History",
 )
-hline!([400.0], linestyle = :dot, color = :gray, linewidth = 1, label = "Initial alt")
-hline!(
-    [aT - 6378.137],
-    linestyle = :dash,
-    color = :red,
-    linewidth = 1,
-    label = "Target alt",
-)
+hline!([400.0]; linestyle=:dot, color=:gray, linewidth=1, label="Initial alt")
+hline!([aT - 6378.137]; linestyle=:dash, color=:red, linewidth=1, label="Target alt")
 
 p_sun = plot(
     t_days,
-    γ_hist,
-    ylabel = "Sunlight γ [-]",
-    xlabel = "Time [days]",
-    label = false,
-    linewidth = 0.3,
-    color = :orange,
-    title = "Eclipse History (γ=0 → shadow)",
+    γ_hist;
+    ylabel="Sunlight γ [-]",
+    xlabel="Time [days]",
+    label=false,
+    linewidth=0.3,
+    color=:orange,
+    title="Eclipse History (γ=0 → shadow)",
 )
 ylims!((-0.05, 1.1))
 
 fig_env = plot(
     p_alt,
-    p_sun,
-    layout = (2, 1),
-    size = (1100, 600),
-    plot_title = "Environment — LEO → MEO (Hi-Fi)",
+    p_sun;
+    layout=(2, 1),
+    size=(1100, 600),
+    plot_title="Environment — LEO → MEO (Hi-Fi)",
 )
 savefig(fig_env, "meo_environment.png")
 println("  Saved: meo_environment.png")

@@ -21,9 +21,8 @@ using ComponentArrays
 using ForwardDiff
 using LinearAlgebra
 using OrdinaryDiffEqCore
-using OrdinaryDiffEqAdamsBashforthMoulton: VCABM
+using OrdinaryDiffEqVerner: Vern9
 using SciMLBase
-using Optim: Optim, optimize, Brent
 using StaticArrays
 
 # =============================================================================

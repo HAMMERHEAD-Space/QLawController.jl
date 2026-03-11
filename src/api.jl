@@ -14,7 +14,7 @@ Solve a Q-Law transfer problem.
 # Keyword Arguments
 - `abstol::Float64=1e-10`: Absolute tolerance for ODE solver
 - `reltol::Float64=1e-10`: Relative tolerance for ODE solver
-- `ODE_solver`: ODE solver algorithm (default: VCABM())
+- `ODE_solver`: ODE solver algorithm (default: Vern9())
 - `saveat`: Times to save solution at (default: automatic)
 - `callback`: DiffEq callback for events
 - `convergence_tol`: (deprecated) Override convergence tolerance; prefer setting
@@ -24,30 +24,40 @@ Solve a Q-Law transfer problem.
 `QLawSolution` containing the trajectory and solution metadata.
 """
 function SciMLBase.solve(
-    problem::QLawProblem{OE0,OET,Tm,Tt0,Ttf,Tμ,Tjd,SC,W,P,DM,SM};
-    abstol::Float64 = 1e-10,
-    reltol::Float64 = 1e-10,
-    ODE_solver::OrdinaryDiffEqCore.OrdinaryDiffEqAlgorithm = VCABM(),
-    saveat = nothing,
-    callback = nothing,
-    convergence_tol = nothing,
+    problem::QLawProblem;
+    abstol::Float64=1e-10,
+    reltol::Float64=1e-10,
+    ODE_solver::OrdinaryDiffEqCore.OrdinaryDiffEqAlgorithm=Vern9(),
+    saveat=nothing,
+    callback=nothing,
+    convergence_tol=nothing,
     kwargs...,
-) where {OE0,OET,Tm,Tt0,Ttf,Tμ,Tjd,SC,W,P,DM,SM}
+)
 
     # Promote type to account for ForwardDiff.Dual numbers that may enter
-    # through QLawWeights or QLawParameters during gradient-based optimization
+    # through initial orbital elements, QLawWeights, QLawParameters, or
+    # spacecraft parameters during gradient-based optimization.
+    # OrdinaryDiffEq requires typeof(du) == typeof(u/t), so u0 must carry
+    # Dual information from any differentiated parameter.
     T = promote_type(
         Float64,
-        Tm,
-        Tt0,
-        Ttf,
-        Tμ,
+        typeof(problem.oe0.p),
+        typeof(problem.m0),
+        typeof(problem.tspan[1]),
+        typeof(problem.tspan[2]),
+        typeof(problem.μ),
         typeof(problem.weights.Wa),
+        typeof(problem.weights.Wf),
+        typeof(problem.weights.Wg),
+        typeof(problem.weights.Wh),
+        typeof(problem.weights.Wk),
         typeof(problem.params.Wp),
         typeof(problem.params.rp_min),
         typeof(problem.params.η_threshold),
         typeof(problem.params.η_smoothness),
         typeof(problem.params.Θrot),
+        typeof(problem.spacecraft.thrust),
+        typeof(problem.spacecraft.Isp),
     )
 
     # Determine effective convergence criterion
@@ -62,9 +72,8 @@ function SciMLBase.solve(
     oe0 = problem.oe0
     u0 = SVector{7,T}(oe0.p, oe0.f, oe0.g, oe0.h, oe0.k, oe0.L, problem.m0)
 
-
     # Parameters
-    ps = ComponentArray(μ = problem.μ, JD = problem.JD0)
+    ps = ComponentArray(; μ=problem.μ, JD=problem.JD0)
 
     # Create termination callback for convergence
     function convergence_condition(u, t, integrator)
@@ -104,27 +113,28 @@ function SciMLBase.solve(
         sol = OrdinaryDiffEqCore.solve(
             ode_prob,
             ODE_solver;
-            abstol = abstol,
-            reltol = reltol,
-            callback = full_callback,
+            abstol=abstol,
+            reltol=reltol,
+            callback=full_callback,
             kwargs...,
         )
     else
         sol = OrdinaryDiffEqCore.solve(
             ode_prob,
             ODE_solver;
-            abstol = abstol,
-            reltol = reltol,
-            saveat = saveat,
-            callback = full_callback,
+            abstol=abstol,
+            reltol=reltol,
+            saveat=saveat,
+            callback=full_callback,
             kwargs...,
         )
     end
 
     # Extract final state
     u_final = sol.u[end]
-    final_oe =
-        ModEq{T}(u_final[1], u_final[2], u_final[3], u_final[4], u_final[5], u_final[6])
+    final_oe = ModEq{T}(
+        u_final[1], u_final[2], u_final[3], u_final[4], u_final[5], u_final[6]
+    )
     final_mass = u_final[7]
 
     # Check convergence using same criterion
@@ -147,13 +157,7 @@ function SciMLBase.solve(
     elapsed_time = sol.t[end] - sol.t[1]
 
     return QLawSolution(
-        problem,
-        sol,
-        converged,
-        Δv_total,
-        final_mass,
-        final_oe,
-        elapsed_time,
+        problem, sol, converged, Δv_total, final_mass, final_oe, elapsed_time
     )
 end
 
@@ -168,7 +172,6 @@ function compute_delta_v(m0::Number, mf::Number, spacecraft::AbstractQLawSpacecr
         return zero(typeof(m0))
     end
 end
-
 
 # Note: check_convergence has been consolidated into qlaw_core.jl with
 # multiple dispatch on convergence criterion type.
@@ -195,20 +198,19 @@ Any field of QLawProblem can be modified:
 """
 function SciMLBase.remake(
     problem::QLawProblem;
-    oe0::Union{ModEq,Nothing} = nothing,
-    oeT::Union{ModEq,Nothing} = nothing,
-    m0::Union{Number,Nothing} = nothing,
-    tspan::Union{Tuple,Nothing} = nothing,
-    μ::Union{Number,Nothing} = nothing,
-    JD0::Union{Number,Nothing} = nothing,
-    spacecraft::Union{AbstractQLawSpacecraft,Nothing} = nothing,
-    weights::Union{QLawWeights,Nothing} = nothing,
-    qlaw_params::Union{QLawParameters,Nothing} = nothing,
-    dynamics_model::Union{AbstractDynamicsModel,Nothing} = nothing,
-    shadow_model_type::Union{ShadowModelType,Nothing} = nothing,
-    sun_model = nothing,
+    oe0::Union{ModEq,Nothing}=nothing,
+    oeT::Union{ModEq,Nothing}=nothing,
+    m0::Union{Number,Nothing}=nothing,
+    tspan::Union{Tuple,Nothing}=nothing,
+    μ::Union{Number,Nothing}=nothing,
+    JD0::Union{Number,Nothing}=nothing,
+    spacecraft::Union{AbstractQLawSpacecraft,Nothing}=nothing,
+    weights::Union{QLawWeights,Nothing}=nothing,
+    qlaw_params::Union{QLawParameters,Nothing}=nothing,
+    dynamics_model::Union{AbstractDynamicsModel,Nothing}=nothing,
+    shadow_model_type::Union{ShadowModelType,Nothing}=nothing,
+    sun_model=nothing,
 )
-
     new_oe0 = oe0 === nothing ? problem.oe0 : oe0
     new_oeT = oeT === nothing ? problem.oeT : oeT
     new_m0 = m0 === nothing ? problem.m0 : m0
