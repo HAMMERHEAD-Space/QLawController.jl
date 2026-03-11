@@ -18,7 +18,7 @@ StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 [compat]
 AstroCoords = "0.4"
 AstroForceModels = "0.6"
-AstroPropagators = "0.3"
+AstroPropagators = "0.4"
 ComponentArrays = "0.15"
 ForwardDiff = "1"
 OrdinaryDiffEqCore = "3"
