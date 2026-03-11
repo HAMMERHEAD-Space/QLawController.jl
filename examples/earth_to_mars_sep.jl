@@ -105,13 +105,13 @@ weights = QLawWeights(1.0, 0.5, 0.5, 0.3, 0.3)
 rp_min_helio = 0.5 * AU
 
 params = QLawParameters(;
-    Wp = 0.0,                               # No periapsis penalty
-    rp_min = rp_min_helio,
-    η_threshold = 0.1,                       # Moderate coasting
-    η_smoothness = 1e-4,
-    effectivity_type = AbsoluteEffectivity(),
-    n_search_points = 50,
-    convergence_criterion = SummedErrorConvergence(0.05),
+    Wp=0.0,                               # No periapsis penalty
+    rp_min=rp_min_helio,
+    η_threshold=0.1,                       # Moderate coasting
+    η_smoothness=1e-4,
+    effectivity_type=AbsoluteEffectivity(),
+    n_search_points=50,
+    convergence_criterion=SummedErrorConvergence(0.05),
 )
 
 # =============================================================================
@@ -139,9 +139,9 @@ prob = qlaw_problem(
     tspan,
     μ_sun,
     spacecraft;
-    weights = weights,
-    qlaw_params = params,
-    shadow_model_type = No_Shadow(),    # Always sunlit in heliocentric space
+    weights=weights,
+    qlaw_params=params,
+    shadow_model_type=No_Shadow(),    # Always sunlit in heliocentric space
 )
 
 println("Solving (this may take a few minutes)...")
@@ -207,10 +207,15 @@ for (idx, u) in enumerate(states)
 
     F_max = max_thrust_acceleration(spacecraft, m_i, r_i)
 
-    α_opt, β_opt, _ =
-        QLawController.compute_thrust_direction(oe_i, oeT, weights, μ_sun, F_max, params)
-    η, _, _, _ = QLawController.compute_effectivity(oe_i, oeT, weights, μ_sun, F_max, params)
-    activation = QLawController.effectivity_activation(η, params.η_threshold, params.η_smoothness)
+    α_opt, β_opt, _ = QLawController.compute_thrust_direction(
+        oe_i, oeT, weights, μ_sun, F_max, params
+    )
+    η, _, _, _ = QLawController.compute_effectivity(
+        oe_i, oeT, weights, μ_sun, F_max, params
+    )
+    activation = QLawController.effectivity_activation(
+        η, params.η_threshold, params.η_smoothness
+    )
 
     push!(α_hist, α_opt)
     push!(β_hist, β_opt)
@@ -230,49 +235,44 @@ for u in states
 end
 
 # Distance from Sun
-r_hist = [QLawController.compute_radius(ModEq(u[1], u[2], u[3], u[4], u[5], u[6])) for u in states]
+r_hist = [
+    QLawController.compute_radius(ModEq(u[1], u[2], u[3], u[4], u[5], u[6])) for u in states
+]
 
 # =============================================================================
 # Plot 1: Orbital Elements vs Time
 # =============================================================================
 println("Generating plots...")
 
-p_a = plot(
-    t_days,
-    a_hist ./ AU,
-    ylabel = "a [AU]",
-    label = false,
-    linewidth = 1,
-    color = :blue,
-)
-hline!([a_mars / AU], linestyle = :dash, color = :red, linewidth = 1.5, label = "Mars")
-hline!([a_earth / AU], linestyle = :dot, color = :green, linewidth = 1, label = "Earth")
+p_a = plot(t_days, a_hist ./ AU; ylabel="a [AU]", label=false, linewidth=1, color=:blue)
+hline!([a_mars / AU]; linestyle=:dash, color=:red, linewidth=1.5, label="Mars")
+hline!([a_earth / AU]; linestyle=:dot, color=:green, linewidth=1, label="Earth")
 
-p_e = plot(t_days, e_hist, ylabel = "e [-]", label = false, linewidth = 1, color = :blue)
-hline!([e_mars], linestyle = :dash, color = :red, linewidth = 1.5, label = false)
+p_e = plot(t_days, e_hist; ylabel="e [-]", label=false, linewidth=1, color=:blue)
+hline!([e_mars]; linestyle=:dash, color=:red, linewidth=1.5, label=false)
 
-p_i = plot(t_days, i_hist, ylabel = "i [deg]", label = false, linewidth = 1, color = :blue)
-hline!([rad2deg(i_mars)], linestyle = :dash, color = :red, linewidth = 1.5, label = false)
+p_i = plot(t_days, i_hist; ylabel="i [deg]", label=false, linewidth=1, color=:blue)
+hline!([rad2deg(i_mars)]; linestyle=:dash, color=:red, linewidth=1.5, label=false)
 
 p_m = plot(
     t_days,
-    m_hist,
-    xlabel = "Time [days]",
-    ylabel = "Mass [kg]",
-    label = false,
-    linewidth = 1.5,
-    color = :blue,
+    m_hist;
+    xlabel="Time [days]",
+    ylabel="Mass [kg]",
+    label=false,
+    linewidth=1.5,
+    color=:blue,
 )
-hline!([m_dry], linestyle = :dash, color = :red, linewidth = 1.5, label = "Dry mass")
+hline!([m_dry]; linestyle=:dash, color=:red, linewidth=1.5, label="Dry mass")
 
 fig_oe = plot(
     p_a,
     p_e,
     p_i,
-    p_m,
-    layout = (2, 2),
-    size = (1100, 750),
-    plot_title = "Orbital Elements — Earth → Mars (SEP)",
+    p_m;
+    layout=(2, 2),
+    size=(1100, 750),
+    plot_title="Orbital Elements — Earth → Mars (SEP)",
 )
 savefig(fig_oe, "mars_orbital_elements.png")
 println("  Saved: mars_orbital_elements.png")
@@ -283,50 +283,40 @@ println("  Saved: mars_orbital_elements.png")
 
 p_thr = plot(
     t_days,
-    thrust_hist,
-    ylabel = "Thrust Accel\n[mm/s²]",
-    label = false,
-    linewidth = 0.5,
-    color = :blue,
+    thrust_hist;
+    ylabel="Thrust Accel\n[mm/s²]",
+    label=false,
+    linewidth=0.5,
+    color=:blue,
 )
 
 p_alp = plot(
-    t_days,
-    rad2deg.(α_hist),
-    ylabel = "α* [deg]",
-    label = false,
-    linewidth = 0.5,
-    color = :blue,
+    t_days, rad2deg.(α_hist); ylabel="α* [deg]", label=false, linewidth=0.5, color=:blue
 )
 
 p_bet = plot(
-    t_days,
-    rad2deg.(β_hist),
-    ylabel = "β* [deg]",
-    label = false,
-    linewidth = 0.5,
-    color = :blue,
+    t_days, rad2deg.(β_hist); ylabel="β* [deg]", label=false, linewidth=0.5, color=:blue
 )
 
 p_eta = plot(
     t_days,
-    η_hist,
-    ylabel = "η [-]",
-    xlabel = "Time [days]",
-    label = false,
-    linewidth = 0.5,
-    color = :blue,
+    η_hist;
+    ylabel="η [-]",
+    xlabel="Time [days]",
+    label=false,
+    linewidth=0.5,
+    color=:blue,
 )
-hline!([params.η_threshold], linestyle = :dash, color = :red, linewidth = 1, label = "ηₜₕ")
+hline!([params.η_threshold]; linestyle=:dash, color=:red, linewidth=1, label="ηₜₕ")
 
 fig_ctrl = plot(
     p_thr,
     p_alp,
     p_bet,
-    p_eta,
-    layout = (4, 1),
-    size = (1100, 900),
-    plot_title = "Controls — Earth → Mars (SEP)",
+    p_eta;
+    layout=(4, 1),
+    size=(1100, 900),
+    plot_title="Controls — Earth → Mars (SEP)",
 )
 savefig(fig_ctrl, "mars_controls.png")
 println("  Saved: mars_controls.png")
@@ -336,7 +326,7 @@ println("  Saved: mars_controls.png")
 # =============================================================================
 
 # Reference circles for Earth and Mars orbits
-θ_ref = range(0, 2π, length = 361)
+θ_ref = range(0, 2π; length=361)
 earth_x = a_earth .* cos.(θ_ref) ./ AU
 earth_y = a_earth .* sin.(θ_ref) ./ AU
 mars_x = a_mars .* cos.(θ_ref) ./ AU
@@ -344,68 +334,43 @@ mars_y = a_mars .* sin.(θ_ref) ./ AU
 
 p_top = plot(
     x_hist ./ AU,
-    y_hist ./ AU,
-    xlabel = "X [AU]",
-    ylabel = "Y [AU]",
-    linewidth = 1,
-    color = :blue,
-    label = "Trajectory",
-    title = "Ecliptic Plane (top-down)",
-    aspect_ratio = :equal,
-    legend = :topright,
+    y_hist ./ AU;
+    xlabel="X [AU]",
+    ylabel="Y [AU]",
+    linewidth=1,
+    color=:blue,
+    label="Trajectory",
+    title="Ecliptic Plane (top-down)",
+    aspect_ratio=:equal,
+    legend=:topright,
 )
-plot!(
-    earth_x,
-    earth_y,
-    linestyle = :dot,
-    color = :green,
-    linewidth = 0.8,
-    label = "Earth orbit",
-)
-plot!(mars_x, mars_y, linestyle = :dot, color = :red, linewidth = 0.8, label = "Mars orbit")
-scatter!([0], [0], markersize = 6, color = :orange, markershape = :star5, label = "Sun")
-scatter!(
-    [x_hist[1] / AU],
-    [y_hist[1] / AU],
-    markersize = 5,
-    color = :green,
-    label = "Departure",
-)
-scatter!(
-    [x_hist[end] / AU],
-    [y_hist[end] / AU],
-    markersize = 5,
-    color = :red,
-    label = "Arrival",
-)
+plot!(earth_x, earth_y; linestyle=:dot, color=:green, linewidth=0.8, label="Earth orbit")
+plot!(mars_x, mars_y; linestyle=:dot, color=:red, linewidth=0.8, label="Mars orbit")
+scatter!([0], [0]; markersize=6, color=:orange, markershape=:star5, label="Sun")
+scatter!([x_hist[1] / AU], [y_hist[1] / AU]; markersize=5, color=:green, label="Departure")
+scatter!([x_hist[end] / AU], [y_hist[end] / AU]; markersize=5, color=:red, label="Arrival")
 
 p_side = plot(
     x_hist ./ AU,
-    z_hist ./ AU,
-    xlabel = "X [AU]",
-    ylabel = "Z [AU]",
-    linewidth = 1,
-    color = :blue,
-    label = false,
-    title = "Side View (ecliptic edge-on)",
-    aspect_ratio = :equal,
+    z_hist ./ AU;
+    xlabel="X [AU]",
+    ylabel="Z [AU]",
+    linewidth=1,
+    color=:blue,
+    label=false,
+    title="Side View (ecliptic edge-on)",
+    aspect_ratio=:equal,
 )
-scatter!([0], [0], markersize = 6, color = :orange, markershape = :star5, label = "Sun")
-scatter!([x_hist[1] / AU], [z_hist[1] / AU], markersize = 5, color = :green, label = "Dep")
-scatter!(
-    [x_hist[end] / AU],
-    [z_hist[end] / AU],
-    markersize = 5,
-    color = :red,
-    label = "Arr",
-)
+scatter!([0], [0]; markersize=6, color=:orange, markershape=:star5, label="Sun")
+scatter!([x_hist[1] / AU], [z_hist[1] / AU]; markersize=5, color=:green, label="Dep")
+scatter!([x_hist[end] / AU], [z_hist[end] / AU]; markersize=5, color=:red, label="Arr")
 
 fig_orbit = plot(
     p_top,
-    p_side,
-    layout = (1, 2),
-    size = (1400, 600),
-    plot_title = "Heliocentric Trajectory — Earth → Mars (SEP)",
+    p_side;
+    layout=(1, 2),
+    size=(1400, 600),
+    plot_title="Heliocentric Trajectory — Earth → Mars (SEP)",
 )
 savefig(fig_orbit, "mars_orbit.png")
 println("  Saved: mars_orbit.png")
@@ -418,33 +383,29 @@ thrust_avail = [Tmax_1AU * (AU / r)^2 * 1000 for r in r_hist]  # mN
 
 p_r = plot(
     t_days,
-    r_hist ./ AU,
-    ylabel = "r [AU]",
-    label = false,
-    linewidth = 1.5,
-    color = :blue,
-    title = "Heliocentric Distance",
+    r_hist ./ AU;
+    ylabel="r [AU]",
+    label=false,
+    linewidth=1.5,
+    color=:blue,
+    title="Heliocentric Distance",
 )
-hline!([1.0], linestyle = :dot, color = :green, linewidth = 1, label = "1 AU")
-hline!([1.524], linestyle = :dash, color = :red, linewidth = 1, label = "Mars")
+hline!([1.0]; linestyle=:dot, color=:green, linewidth=1, label="1 AU")
+hline!([1.524]; linestyle=:dash, color=:red, linewidth=1, label="Mars")
 
 p_T = plot(
     t_days,
-    thrust_avail,
-    ylabel = "Available Thrust [mN]",
-    xlabel = "Time [days]",
-    label = false,
-    linewidth = 1.5,
-    color = :purple,
-    title = "SEP Thrust vs Distance",
+    thrust_avail;
+    ylabel="Available Thrust [mN]",
+    xlabel="Time [days]",
+    label=false,
+    linewidth=1.5,
+    color=:purple,
+    title="SEP Thrust vs Distance",
 )
 
 fig_sep = plot(
-    p_r,
-    p_T,
-    layout = (2, 1),
-    size = (1100, 600),
-    plot_title = "SEP Environment — Earth → Mars",
+    p_r, p_T; layout=(2, 1), size=(1100, 600), plot_title="SEP Environment — Earth → Mars"
 )
 savefig(fig_sep, "mars_sep_environment.png")
 println("  Saved: mars_sep_environment.png")

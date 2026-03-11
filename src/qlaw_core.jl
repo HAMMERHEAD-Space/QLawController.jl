@@ -7,10 +7,10 @@
 
 export p_to_a, a_to_p, get_sma, compute_q, compute_radius
 export equinoctial_gve_partials
-export compute_max_rates
+export compute_max_rates, compute_max_rates_analytical
 export compute_scaling
 export compute_penalty
-export compute_Q, compute_Q_from_vec
+export compute_Q, compute_Q_from_vec, compute_Q_from_vec_with_rates
 export compute_dQ_doe_analytical
 export compute_Qdot_coefficients, compute_thrust_direction, thrust_direction_to_rtn
 export compute_effectivity
@@ -70,81 +70,37 @@ end
 Compute the A matrix for Gauss Variational Equations in equinoctial elements.
 Returns a 6×3 matrix where A[i,j] = ∂(oe_i)/∂(F_j) with F = [Fr, Fθ, Fh].
 
-Note: This uses semi-major axis internally (as per Varga & Perez) but
-accepts ModEq which uses semi-latus rectum p.
+Row 1 gives da/dF (semi-major axis rate), as required by the Q-Law controller
+(Varga & Perez). Rows 2–6 give df, dg, dh, dk, dL rates.
 
-# Returns
-Matrix A where:
-- Column 1: ∂oe/∂Fr (radial)
-- Column 2: ∂oe/∂Fθ (tangential)  
-- Column 3: ∂oe/∂Fh (normal)
+Delegates to `AstroPropagators.modified_equinoctial_gve` (p-based) and converts
+the first row: da/dF = dp/dF / (1 − e²).
 """
 function equinoctial_gve_partials(oe::ModEq{T}, μ::Number) where {T}
-    p, f, g, h, k, L = oe.p, oe.f, oe.g, oe.h, oe.k, oe.L
+    A_p = AstroPropagators.modified_equinoctial_gve(oe.p, oe.f, oe.g, oe.h, oe.k, oe.L, μ)
 
-    # Convert to semi-major axis
-    e_sq = f^2 + g^2
-    a = p / (one(T) - e_sq)
-
-    # Auxiliary quantities
-    q = compute_q(f, g, L)
-    sL, cL = sincos(L)
-
-    # Common factor
-    sqrt_factor = sqrt(a * (one(T) - e_sq) / μ)
-    common = sqrt_factor / q
-
-    # Build A matrix (6×3)
-    # Row 1: da/dF
-    A11 = 2 * a * q * common * (f * sL - g * cL) / (one(T) - e_sq)
-    A12 = 2 * a * q^2 * common / (one(T) - e_sq)
-    A13 = zero(T)
-
-    # Row 2: df/dF
-    A21 = q * common * sL
-    A22 = common * ((q + one(T)) * cL + f)
-    A23 = -common * g * (h * sL - k * cL)
-
-    # Row 3: dg/dF
-    A31 = -q * common * cL
-    A32 = common * ((q + one(T)) * sL + g)
-    A33 = common * f * (h * sL - k * cL)
-
-    # Row 4: dh/dF
-    s_sq = one(T) + h^2 + k^2
-    A41 = zero(T)
-    A42 = zero(T)
-    A43 = common * s_sq * cL / 2
-
-    # Row 5: dk/dF
-    A51 = zero(T)
-    A52 = zero(T)
-    A53 = common * s_sq * sL / 2
-
-    # Row 6: dL/dF
-    A61 = zero(T)
-    A62 = zero(T)
-    A63 = common * (h * sL - k * cL)
+    e_sq = oe.f^2 + oe.g^2
+    inv_factor = one(T) / (one(T) - e_sq)
 
     return SMatrix{6,3,T}(
-        A11,
-        A21,
-        A31,
-        A41,
-        A51,
-        A61,
-        A12,
-        A22,
-        A32,
-        A42,
-        A52,
-        A62,
-        A13,
-        A23,
-        A33,
-        A43,
-        A53,
-        A63,
+        A_p[1, 1] * inv_factor,
+        A_p[2, 1],
+        A_p[3, 1],
+        A_p[4, 1],
+        A_p[5, 1],
+        A_p[6, 1],
+        A_p[1, 2] * inv_factor,
+        A_p[2, 2],
+        A_p[3, 2],
+        A_p[4, 2],
+        A_p[5, 2],
+        A_p[6, 2],
+        A_p[1, 3] * inv_factor,
+        A_p[2, 3],
+        A_p[3, 3],
+        A_p[4, 3],
+        A_p[5, 3],
+        A_p[6, 3],
     )
 end
 
@@ -170,13 +126,7 @@ This is AD-friendly because it's just algebraic operations.
 Returns vector [ȧₓₓ, ḟₓₓ, ġₓₓ, ḣₓₓ, k̇ₓₓ] (5 elements, excluding L).
 """
 function compute_max_rates_analytical(
-    a::T,
-    f::T,
-    g::T,
-    h::T,
-    k::T,
-    μ::Number,
-    F_max::Number,
+    a::T, f::T, g::T, h::T, k::T, μ::Number, F_max::Number
 ) where {T}
     # Eccentricity
     e = sqrt(f^2 + g^2)
@@ -206,7 +156,7 @@ function compute_max_rates_analytical(
     # Same reasoning: 1-f² > g² → sqrt(1-f²) > |g| → denominator > 0.
     k_dot_xx = T(0.5) * F_max * sqrt_p_mu * s_sq / (sqrt(one(T) - f^2) + g)
 
-    return SVector{5,T}(a_dot_xx, f_dot_xx, g_dot_xx, h_dot_xx, k_dot_xx)
+    return SVector(a_dot_xx, f_dot_xx, g_dot_xx, h_dot_xx, k_dot_xx)
 end
 
 """
@@ -218,14 +168,7 @@ thrust directions at a specific true longitude. Works directly with element valu
 Returns vector [ȧₓₓ, ḟₓₓ, ġₓₓ, ḣₓₓ, k̇ₓₓ] (5 elements, excluding L).
 """
 function compute_max_rates_at_L(
-    a::T,
-    f::T,
-    g::T,
-    h::T,
-    k::T,
-    L::T,
-    μ::Number,
-    F_max::Number,
+    a::T, f::T, g::T, h::T, k::T, L::T, μ::Number, F_max::Number
 ) where {T}
     # Build ModEq for GVE partials (needs p, not a)
     p = a * (one(T) - f^2 - g^2)
@@ -234,12 +177,12 @@ function compute_max_rates_at_L(
 
     # Max rate for each element is F_max * ||A[i,:]||
     # Only first 5 elements (a, f, g, h, k), not L
-    max_rates = SVector{5,T}(
-        F_max * norm(SVector{3,T}(A[1, 1], A[1, 2], A[1, 3])),
-        F_max * norm(SVector{3,T}(A[2, 1], A[2, 2], A[2, 3])),
-        F_max * norm(SVector{3,T}(A[3, 1], A[3, 2], A[3, 3])),
-        F_max * norm(SVector{3,T}(A[4, 1], A[4, 2], A[4, 3])),
-        F_max * norm(SVector{3,T}(A[5, 1], A[5, 2], A[5, 3])),
+    max_rates = SVector(
+        F_max * norm(SVector(A[1, 1], A[1, 2], A[1, 3])),
+        F_max * norm(SVector(A[2, 1], A[2, 2], A[2, 3])),
+        F_max * norm(SVector(A[3, 1], A[3, 2], A[3, 3])),
+        F_max * norm(SVector(A[4, 1], A[4, 2], A[4, 3])),
+        F_max * norm(SVector(A[5, 1], A[5, 2], A[5, 3])),
     )
 
     return max_rates
@@ -266,15 +209,7 @@ true longitudes to find the actual maximum.
 Returns vector [ȧₓₓ, ḟₓₓ, ġₓₓ, ḣₓₓ, k̇ₓₓ] (5 elements, excluding L).
 """
 function compute_max_rates(
-    a::T,
-    f::T,
-    g::T,
-    h::T,
-    k::T,
-    L::T,
-    μ::Number,
-    F_max::Number;
-    n_points::Int = 20,
+    a::T, f::T, g::T, h::T, k::T, L::T, μ::Number, F_max::Number; n_points::Int=20
 ) where {T}
     # Exact analytical rate for a (Varga Eq. 14) — truly exact since max energy
     # change rate occurs at periapsis with pure tangential thrust
@@ -287,7 +222,7 @@ function compute_max_rates(
     h_dot_max = analytical[4]
     k_dot_max = analytical[5]
 
-    for i = 0:(n_points-1)
+    for i in 0:(n_points - 1)
         L_test = T(2π) * T(i) / T(n_points)
         rates_at_L = compute_max_rates_at_L(a, f, g, h, k, L_test, μ, F_max)
         f_dot_max = max(f_dot_max, rates_at_L[2])
@@ -296,7 +231,7 @@ function compute_max_rates(
         k_dot_max = max(k_dot_max, rates_at_L[5])
     end
 
-    return SVector{5,T}(analytical[1], f_dot_max, g_dot_max, h_dot_max, k_dot_max)
+    return SVector(analytical[1], f_dot_max, g_dot_max, h_dot_max, k_dot_max)
 end
 
 # Convenience method that takes ModEq
@@ -320,11 +255,7 @@ Sa = [1 + (|a - aT| / (m * aT))^n]^(1/r)
 Returns vector [Sa, Sf, Sg, Sh, Sk].
 """
 function compute_scaling(
-    a::T,
-    aT::T,
-    m_scaling::Number = 1.0,
-    n_scaling::Number = 4.0,
-    r_scaling::Number = 2.0,
+    a::T, aT::T, m_scaling::Number=1.0, n_scaling::Number=4.0, r_scaling::Number=2.0
 ) where {T}
     # Varga Eq. 8: Sa = [1 + (|a - at|/(m*at))^n]^(1/r)
     Sa = (one(T) + (abs(a - aT) / (T(m_scaling) * aT))^T(n_scaling))^(one(T) / T(r_scaling))
@@ -337,9 +268,9 @@ end
 function compute_scaling(
     oe::ModEq{T},
     oeT::ModEq{T};
-    m_scaling::Number = 1.0,
-    n_scaling::Number = 4.0,
-    r_scaling::Number = 2.0,
+    m_scaling::Number=1.0,
+    n_scaling::Number=4.0,
+    r_scaling::Number=2.0,
 ) where {T}
     return compute_scaling(get_sma(oe), get_sma(oeT), m_scaling, n_scaling, r_scaling)
 end
@@ -362,7 +293,7 @@ AD compatibility. When rp >> rp_min the exponent is very negative and P ≈ 0.
 # Arguments
 - `k_pen`: Steepness of the exponential barrier (default: 100.0)
 """
-function compute_penalty(a::T, f::T, g::T, rp_min::Number, k_pen::Number = 100.0) where {T}
+function compute_penalty(a::T, f::T, g::T, rp_min::Number, k_pen::Number=100.0) where {T}
     # Regularized eccentricity: eps(T)^2 prevents 0/0 in ForwardDiff
     # derivative of sqrt at f=g=0 (circular orbits)
     e = sqrt(f^2 + g^2 + eps(T)^2)
@@ -371,7 +302,7 @@ function compute_penalty(a::T, f::T, g::T, rp_min::Number, k_pen::Number = 100.0
 end
 
 # Convenience method that takes ModEq
-function compute_penalty(oe::ModEq{T}, rp_min::Number, k_pen::Number = 100.0) where {T}
+function compute_penalty(oe::ModEq{T}, rp_min::Number, k_pen::Number=100.0) where {T}
     return compute_penalty(get_sma(oe), oe.f, oe.g, rp_min, k_pen)
 end
 
@@ -402,12 +333,11 @@ function compute_Q_from_vec_with_rates(
     max_rates::SVector{5,Tr},
     Wp::Number,
     rp_min::Number,
-    m_scaling::Number = 1.0,
-    n_scaling::Number = 4.0,
-    r_scaling::Number = 2.0,
-    k_pen::Number = 100.0,
+    m_scaling::Number=1.0,
+    n_scaling::Number=4.0,
+    r_scaling::Number=2.0,
+    k_pen::Number=100.0,
 ) where {T,Tt,Tw,Tr}
-
     a, f, g, h, k = oe_vec[1], oe_vec[2], oe_vec[3], oe_vec[4], oe_vec[5]
     aT = oeT_vec[1]
 
@@ -419,7 +349,7 @@ function compute_Q_from_vec_with_rates(
 
     # Compute Q - max_rates is constant, not differentiated
     Q = zero(T)
-    for i = 1:5
+    for i in 1:5
         if max_rates[i] > eps(Tr)
             term = W_vec[i] * S_vec[i] * ((oe_vec[i] - oeT_vec[i]) / max_rates[i])^2
             Q += term
@@ -462,12 +392,11 @@ function compute_dQ_doe_analytical(
     max_rates::SVector{5,Tr},
     Wp::Number,
     rp_min::Number,
-    m_scaling::Number = 1.0,
-    n_scaling::Number = 4.0,
-    r_scaling::Number = 2.0,
-    k_pen::Number = 100.0,
+    m_scaling::Number=1.0,
+    n_scaling::Number=4.0,
+    r_scaling::Number=2.0,
+    k_pen::Number=100.0,
 ) where {T,Tt,Tw,Tr}
-
     a, f, g, h, k = oe_vec[1], oe_vec[2], oe_vec[3], oe_vec[4], oe_vec[5]
     aT = T(oeT_vec[1])
 
@@ -564,7 +493,7 @@ function compute_dQ_doe_analytical(
     dQ_dh = pf * dQsum_dh    # P independent of h
     dQ_dk = pf * dQsum_dk    # P independent of k
 
-    return SVector{5,T}(dQ_da, dQ_df, dQ_dg, dQ_dh, dQ_dk)
+    return SVector(dQ_da, dQ_df, dQ_dg, dQ_dh, dQ_dk)
 end
 
 """
@@ -592,12 +521,11 @@ function compute_Q_from_vec(
     F_max::Number,
     Wp::Number,
     rp_min::Number,
-    m_scaling::Number = 1.0,
-    n_scaling::Number = 4.0,
-    r_scaling::Number = 2.0,
-    k_pen::Number = 100.0,
+    m_scaling::Number=1.0,
+    n_scaling::Number=4.0,
+    r_scaling::Number=2.0,
+    k_pen::Number=100.0,
 ) where {T,Tt,Tw}
-
     a, f, g, h, k = oe_vec[1], oe_vec[2], oe_vec[3], oe_vec[4], oe_vec[5]
 
     # Compute max rates using analytical formulas (Varga Eqs. 14-18).
@@ -646,10 +574,10 @@ function compute_Q(
     F_max::Number,
     Wp::Number,
     rp_min::Number,
-    m_scaling::Number = 1.0,
-    n_scaling::Number = 4.0,
-    r_scaling::Number = 2.0,
-    k_pen::Number = 100.0,
+    m_scaling::Number=1.0,
+    n_scaling::Number=4.0,
+    r_scaling::Number=2.0,
+    k_pen::Number=100.0,
 ) where {T}
 
     # Get element vectors (a, f, g, h, k)
@@ -729,10 +657,10 @@ function compute_Qdot_coefficients(
     F_max::Number,
     Wp::Number,
     rp_min::Number,
-    m_scaling::Number = 1.0,
-    n_scaling::Number = 4.0,
-    r_scaling::Number = 2.0,
-    k_pen::Number = 100.0,
+    m_scaling::Number=1.0,
+    n_scaling::Number=4.0,
+    r_scaling::Number=2.0,
+    k_pen::Number=100.0,
 ) where {T1<:Number,T2<:Number,T3<:Number}
     T = promote_type(T1, T2, T3)
     # Get current orbital elements
@@ -780,7 +708,7 @@ function compute_Qdot_coefficients(
     D2 = zero(T)  # Radial: ∂oe/∂Fr is column 1
     D3 = zero(T)  # Normal: ∂oe/∂Fh is column 3
 
-    for i = 1:5
+    for i in 1:5
         D1 += dQ_doe[i] * A[i, 2]  # Tangential
         D2 += dQ_doe[i] * A[i, 1]  # Radial
         D3 += dQ_doe[i] * A[i, 3]  # Normal
@@ -815,24 +743,13 @@ function compute_thrust_direction(
     F_max::Number,
     Wp::Number,
     rp_min::Number,
-    m_scaling::Number = 1.0,
-    n_scaling::Number = 4.0,
-    r_scaling::Number = 2.0,
-    k_pen::Number = 100.0,
+    m_scaling::Number=1.0,
+    n_scaling::Number=4.0,
+    r_scaling::Number=2.0,
+    k_pen::Number=100.0,
 ) where {T1<:Number,T2<:Number,T3<:Number}
-
     D1, D2, D3 = compute_Qdot_coefficients(
-        oe,
-        oeT,
-        weights,
-        μ,
-        F_max,
-        Wp,
-        rp_min,
-        m_scaling,
-        n_scaling,
-        r_scaling,
-        k_pen,
+        oe, oeT, weights, μ, F_max, Wp, rp_min, m_scaling, n_scaling, r_scaling, k_pen
     )
 
     # From Eq. (27)-(28)
@@ -891,6 +808,109 @@ end
 # =============================================================================
 
 """
+    _brent_minimize(f, a, b; tol=1e-8, maxiter=50)
+
+Non-allocating Brent's method for 1D bounded minimization.
+Finds a local minimum of `f` in the interval `[a, b]`.
+Returns the minimum function value (not the minimizer).
+"""
+@inline function _brent_minimize(f, a, b; tol=1e-8, maxiter=50)
+    golden = 0.3819660112501051  # (3 - √5) / 2
+
+    x = w = v = a + golden * (b - a)
+    fx = fw = fv = f(x)
+    d = e = b - a
+
+    for _ in 1:maxiter
+        midpoint = 0.5 * (a + b)
+        tol1 = tol * abs(x) + 1e-10
+        tol2 = 2.0 * tol1
+
+        if abs(x - midpoint) <= (tol2 - 0.5 * (b - a))
+            return fx
+        end
+
+        # Try parabolic interpolation
+        if abs(e) > tol1
+            r = (x - w) * (fx - fv)
+            q = (x - v) * (fx - fw)
+            p = (x - v) * q - (x - w) * r
+            q = 2.0 * (q - r)
+            if q > 0.0
+                p = -p
+            else
+                q = -q
+            end
+            r = e
+            e = d
+
+            if abs(p) < abs(0.5 * q * r) && p > q * (a - x) && p < q * (b - x)
+                d = p / q
+                u = x + d
+                if (u - a) < tol2 || (b - u) < tol2
+                    d = x < midpoint ? tol1 : -tol1
+                end
+            else
+                e = (x < midpoint ? b : a) - x
+                d = golden * e
+            end
+        else
+            e = (x < midpoint ? b : a) - x
+            d = golden * e
+        end
+
+        u = abs(d) >= tol1 ? x + d : x + (d > 0 ? tol1 : -tol1)
+        fu = f(u)
+
+        if fu <= fx
+            if u < x
+                b = x
+            else
+                a = x
+            end
+            v, fv = w, fw
+            w, fw = x, fx
+            x, fx = u, fu
+        else
+            if u < x
+                a = u
+            else
+                b = u
+            end
+            if fu <= fw || w == x
+                v, fv = w, fw
+                w, fw = u, fu
+            elseif fu <= fv || v == x || v == w
+                v, fv = u, fu
+            end
+        end
+    end
+
+    return fx
+end
+
+@inline function _qdot_at_L(
+    oe::ModEq{T},
+    oeT::ModEq,
+    weights::QLawWeights,
+    μ::Number,
+    F_max::Number,
+    Wp::Number,
+    rp_min::Number,
+    m_scaling::Number,
+    n_scaling::Number,
+    r_scaling::Number,
+    k_pen::Number,
+    L_val::Number,
+) where {T}
+    oe_test = ModEq{T}(oe.p, oe.f, oe.g, oe.h, oe.k, T(L_val))
+    _, _, Qdot_test = compute_thrust_direction(
+        oe_test, oeT, weights, μ, F_max, Wp, rp_min, m_scaling, n_scaling, r_scaling, k_pen
+    )
+    return Qdot_test
+end
+
+"""
     compute_effectivity(oe, oeT, weights, μ, F_max, Wp, rp_min, n_points, eff_type,
                         search_method; Qdot_n_precomputed=nothing, kwargs...)
 
@@ -898,7 +918,7 @@ Compute the effectivity η.
 
 # Arguments
 - `eff_type`: `AbsoluteEffectivity()` or `RelativeEffectivity()`
-- `search_method`: `GridSearch()` or `RefinedSearch()` (Brent refinement via Optim.jl)
+- `search_method`: `GridSearch()` or `RefinedSearch()` (Brent refinement)
 - `n_points`: Number of points for grid search over true longitude
 - `Qdot_n_precomputed`: If provided, skip recomputing Q̇ at current position (avoids redundant work)
 
@@ -918,21 +938,33 @@ function compute_effectivity(
     rp_min::Number,
     n_points::Int,
     eff_type::AbstractEffectivityType,
-    search_method::AbstractEffectivitySearch = RefinedSearch();
-    m_scaling::Number = 1.0,
-    n_scaling::Number = 4.0,
-    r_scaling::Number = 2.0,
-    k_pen::Number = 100.0,
-    Qdot_n_precomputed::Union{Nothing,Number} = nothing,
+    search_method::AbstractEffectivitySearch=RefinedSearch();
+    m_scaling::Number=1.0,
+    n_scaling::Number=4.0,
+    r_scaling::Number=2.0,
+    k_pen::Number=100.0,
+    Qdot_n_precomputed::Union{Nothing,Number}=nothing,
 ) where {T1<:Number,T2<:Number,T3<:Number}
-
     T = promote_type(T1, T2, T3)
 
     # Get Q̇ at current position (reuse pre-computed value if available)
     if Qdot_n_precomputed !== nothing
-        Qdot_n = T(Qdot_n_precomputed)
+        Qdot_n = Qdot_n_precomputed
     else
         _, _, Qdot_n = compute_thrust_direction(
+            oe, oeT, weights, μ, F_max, Wp, rp_min, m_scaling, n_scaling, r_scaling, k_pen
+        )
+    end
+
+    # Grid search to find approximate extrema
+    Qdot_nn = Qdot_n
+    Qdot_nx = Qdot_n
+    L_nn = oe.L
+    L_nx = oe.L
+
+    for i in 0:(n_points - 1)
+        L_test = T(2π) * T(i) / T(n_points)
+        Qdot_test = _qdot_at_L(
             oe,
             oeT,
             weights,
@@ -944,38 +976,8 @@ function compute_effectivity(
             n_scaling,
             r_scaling,
             k_pen,
+            L_test,
         )
-    end
-
-    # Helper: compute Q̇ at a given true longitude
-    function _qdot_at_L(L_val)
-        oe_test = ModEq{T}(oe.p, oe.f, oe.g, oe.h, oe.k, T(L_val))
-        _, _, Qdot_test = compute_thrust_direction(
-            oe_test,
-            oeT,
-            weights,
-            μ,
-            F_max,
-            Wp,
-            rp_min,
-            m_scaling,
-            n_scaling,
-            r_scaling,
-            k_pen,
-        )
-        return Qdot_test
-    end
-
-    # Grid search to find approximate extrema
-    Qdot_nn = Qdot_n
-    Qdot_nx = Qdot_n
-    L_nn = oe.L  # L at approximate minimum
-    L_nx = oe.L  # L at approximate maximum
-
-    L_range = range(zero(T), T(2π), length = n_points)
-
-    for L_test in L_range
-        Qdot_test = _qdot_at_L(L_test)
 
         if Qdot_test < Qdot_nn
             Qdot_nn = Qdot_test
@@ -987,34 +989,50 @@ function compute_effectivity(
         end
     end
 
-    # Refine extrema using Brent's method (Optim.jl) if requested
+    # Refine extrema using Brent's method if requested
     if search_method isa RefinedSearch
         ΔL = T(2π) / n_points
 
-        # Refine minimum (Qdot_nn) using Brent's method
-        L_lo_min = Float64(L_nn - ΔL)
-        L_hi_min = Float64(L_nn + ΔL)
-        result_min = optimize(
-            L_val -> Float64(_qdot_at_L(L_val)),
-            L_lo_min,
-            L_hi_min,
-            Brent();
-            abs_tol = 1e-8,
+        Qdot_nn_refined = _brent_minimize(
+            L_val -> _qdot_at_L(
+                oe,
+                oeT,
+                weights,
+                μ,
+                F_max,
+                Wp,
+                rp_min,
+                m_scaling,
+                n_scaling,
+                r_scaling,
+                k_pen,
+                L_val,
+            ),
+            L_nn - ΔL,
+            L_nn + ΔL,
         )
-        Qdot_nn_refined = T(Optim.minimum(result_min))
         Qdot_nn = min(Qdot_nn, Qdot_nn_refined)
 
-        # Refine maximum (Qdot_nx) by minimizing the negative
-        L_lo_max = Float64(L_nx - ΔL)
-        L_hi_max = Float64(L_nx + ΔL)
-        result_max = optimize(
-            L_val -> -Float64(_qdot_at_L(L_val)),
-            L_lo_max,
-            L_hi_max,
-            Brent();
-            abs_tol = 1e-8,
-        )
-        Qdot_nx_refined = T(-Optim.minimum(result_max))
+        Qdot_nx_refined =
+            -_brent_minimize(
+                L_val ->
+                    -_qdot_at_L(
+                        oe,
+                        oeT,
+                        weights,
+                        μ,
+                        F_max,
+                        Wp,
+                        rp_min,
+                        m_scaling,
+                        n_scaling,
+                        r_scaling,
+                        k_pen,
+                        L_val,
+                    ),
+                L_nx - ΔL,
+                L_nx + ΔL,
+            )
         Qdot_nx = max(Qdot_nx, Qdot_nx_refined)
     end
 
@@ -1042,7 +1060,7 @@ function compute_effectivity(
     μ::Number,
     F_max::Number,
     params::QLawParameters;
-    Qdot_n_precomputed::Union{Nothing,Number} = nothing,
+    Qdot_n_precomputed::Union{Nothing,Number}=nothing,
 ) where {T1<:Number,T2<:Number,T3<:Number}
     return compute_effectivity(
         oe,
@@ -1055,11 +1073,11 @@ function compute_effectivity(
         params.n_search_points,
         params.effectivity_type,
         params.effectivity_search;
-        m_scaling = params.m_scaling,
-        n_scaling = params.n_scaling,
-        r_scaling = params.r_scaling,
-        k_pen = params.k_penalty,
-        Qdot_n_precomputed = Qdot_n_precomputed,
+        m_scaling=params.m_scaling,
+        n_scaling=params.n_scaling,
+        r_scaling=params.r_scaling,
+        k_pen=params.k_penalty,
+        Qdot_n_precomputed=Qdot_n_precomputed,
     )
 end
 
@@ -1092,8 +1110,9 @@ function compute_thrust_and_effectivity(
     α, β, Qdot_n = compute_thrust_direction(oe, oeT, weights, μ, F_max, params)
 
     # Compute effectivity, reusing the already-computed Qdot_n
-    η, _, _, _ =
-        compute_effectivity(oe, oeT, weights, μ, F_max, params; Qdot_n_precomputed = Qdot_n)
+    η, _, _, _ = compute_effectivity(
+        oe, oeT, weights, μ, F_max, params; Qdot_n_precomputed=Qdot_n
+    )
 
     return (α, β, Qdot_n, η)
 end
@@ -1113,9 +1132,7 @@ Returns value in (0, 1) that smoothly transitions at threshold.
 From Eq. (33): activation = 0.5 * (1 + tanh((η - η_tr) / μ))
 """
 function effectivity_activation(
-    η::NT,
-    η_threshold::NT2,
-    μ_smooth::MT3 = NT(1e-4),
+    η::NT, η_threshold::NT2, μ_smooth::MT3=NT(1e-4)
 ) where {NT<:Number,NT2<:Number,MT3<:Number}
     T = promote_type(NT, NT2, MT3)
     return T(0.5) * (one(T) + tanh((η - η_threshold) / μ_smooth))
@@ -1164,9 +1181,7 @@ Check convergence using summed per-element relative errors.
 Legacy method without weights — checks all elements.
 """
 function check_convergence(
-    oe::ModEq{T},
-    oeT::ModEq{T2},
-    criterion::SummedErrorConvergence,
+    oe::ModEq{T}, oeT::ModEq{T2}, criterion::SummedErrorConvergence
 ) where {T<:Number,T2<:Number}
     err_a, err_f, err_g, err_h, err_k = _element_errors(oe, oeT)
     return (err_a + err_f + err_g + err_h + err_k) < criterion.tol
@@ -1239,9 +1254,7 @@ Check convergence using the maximum per-element relative error.
 Legacy method without weights — checks all elements.
 """
 function check_convergence(
-    oe::ModEq{T},
-    oeT::ModEq{T2},
-    criterion::MaxElementConvergence,
+    oe::ModEq{T}, oeT::ModEq{T2}, criterion::MaxElementConvergence
 ) where {T<:Number,T2<:Number}
     err_a, err_f, err_g, err_h, err_k = _element_errors(oe, oeT)
     return max(err_a, err_f, err_g, err_h, err_k) < criterion.tol
@@ -1290,18 +1303,12 @@ function check_convergence(
     params::QLawParameters,
 )
     return check_convergence(
-        oe,
-        oeT,
-        weights,
-        μ,
-        F_max,
-        params,
-        params.convergence_criterion,
+        oe, oeT, weights, μ, F_max, params, params.convergence_criterion
     )
 end
 
 # Legacy: keyword tol version (backward compatibility with tests)
-function check_convergence(oe::ModEq, oeT::ModEq; tol::Number = 0.05)
+function check_convergence(oe::ModEq, oeT::ModEq; tol::Number=0.05)
     return check_convergence(oe, oeT, SummedErrorConvergence(tol))
 end
 

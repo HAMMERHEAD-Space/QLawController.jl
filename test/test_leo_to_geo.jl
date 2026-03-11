@@ -51,13 +51,14 @@
         oeT_vec = [a_tgt, oeT.f, oeT.g, oeT.h, oeT.k]
         W_vec = [0.0785, 0.7926, 0.6876, 0.3862, 0.5]
 
-        max_rates =
-            QLawController.compute_max_rates_analytical(a_curr, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max)
+        max_rates = QLawController.compute_max_rates_analytical(
+            a_curr, oe0.f, oe0.g, oe0.h, oe0.k, μ, F_max
+        )
         S = QLawController.compute_scaling(oe0, oeT)
 
         # Match implementation: only include terms where max_rates[i] > eps
         Q_expected = 0.0
-        for i = 1:5
+        for i in 1:5
             if max_rates[i] > eps(Float64)
                 Q_expected += W_vec[i] * S[i] * ((oe_vec[i] - oeT_vec[i]) / max_rates[i])^2
             end
@@ -81,8 +82,9 @@
         α, β, Qdot = compute_thrust_direction(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
 
         # Verify Qdot = D1*cos(β)*cos(α) + D2*cos(β)*sin(α) + D3*sin(β)
-        D1, D2, D3 =
-            QLawController.compute_Qdot_coefficients(oe0, oeT, weights, μ, F_max, 1.0, 6378.0)
+        D1, D2, D3 = QLawController.compute_Qdot_coefficients(
+            oe0, oeT, weights, μ, F_max, 1.0, 6378.0
+        )
         Qdot_expected = D1*cos(β)*cos(α) + D2*cos(β)*sin(α) + D3*sin(β)
 
         @test Qdot ≈ Qdot_expected rtol=1e-10
@@ -110,15 +112,7 @@
         F_max = max_thrust_acceleration(sc, m0, a0)
 
         η_abs, Qdot_n, Qdot_nn, Qdot_nx = compute_effectivity(
-            oe0,
-            oeT,
-            weights,
-            μ,
-            F_max,
-            1.0,
-            6378.0,
-            50,
-            AbsoluteEffectivity(),
+            oe0, oeT, weights, μ, F_max, 1.0, 6378.0, 50, AbsoluteEffectivity()
         )
 
         # Verify η_absolute = Qdot_n / Qdot_nn
@@ -130,15 +124,7 @@
 
         # Relative effectivity formula
         η_rel, _, Qdot_nn_r, Qdot_nx_r = compute_effectivity(
-            oe0,
-            oeT,
-            weights,
-            μ,
-            F_max,
-            1.0,
-            6378.0,
-            50,
-            RelativeEffectivity(),
+            oe0, oeT, weights, μ, F_max, 1.0, 6378.0, 50, RelativeEffectivity()
         )
 
         @test η_rel ≈ (Qdot_n - Qdot_nx_r) / (Qdot_nn_r - Qdot_nx_r) rtol=1e-10
@@ -164,9 +150,9 @@
     @testset "Problem construction stores parameters correctly" begin
         tspan = (0.0, 86400.0 * 60.0)
         weights = QLawWeights(0.0785, 0.7926, 0.6876, 0.3862, 0.5)
-        params = QLawParameters(; η_threshold = -0.01, rp_min = 6578.0)
+        params = QLawParameters(; η_threshold=-0.01, rp_min=6578.0)
 
-        prob = qlaw_problem(oe0, oeT, tspan, μ, sc; weights = weights, qlaw_params = params)
+        prob = qlaw_problem(oe0, oeT, tspan, μ, sc; weights=weights, qlaw_params=params)
 
         @test prob.μ == μ
         @test prob.m0 == m0

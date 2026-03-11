@@ -19,6 +19,7 @@ using QLawController
 
 using AstroCoords
 using AstroForceModels
+using StaticArrays: MMatrix
 using SatelliteToolboxGravityModels
 using SatelliteToolboxTransformations
 using Optimization
@@ -68,14 +69,16 @@ egm96_file = fetch_icgem_file(:EGM96)
 gravity_coeffs = GravityModels.load(IcgemFile, egm96_file)
 
 gravity_model = GravityHarmonicsAstroModel(;
-    gravity_model = gravity_coeffs,
-    eop_data = eop_data,
-    degree = 2,
-    order = 0,
+    gravity_model=gravity_coeffs,
+    eop_data=eop_data,
+    degree=2,
+    order=0,
+    P=MMatrix{3,3,Float64}(zeros(3, 3)),
+    dP=MMatrix{3,3,Float64}(zeros(3, 3)),
 )
 
-moon_model = ThirdBodyModel(; body = MoonBody(), eop_data = eop_data)
-sun_model = ThirdBodyModel(; body = SunBody(), eop_data = eop_data)
+moon_model = ThirdBodyModel(; body=MoonBody(), eop_data=eop_data)
+sun_model = ThirdBodyModel(; body=SunBody(), eop_data=eop_data)
 
 dynamics_model = CentralBodyDynamicsModel(gravity_model, (moon_model, sun_model))
 
@@ -96,7 +99,6 @@ ub = [1.0, 1.0, 1.0, 1.0, 1.0, 0.3]
 # Problem parameters tuple
 p_common = (oe0, oeT, tspan, μ, spacecraft, dynamics_model, sun_model, JD0)
 
-
 # =============================================================================
 # Objective Functions
 #
@@ -110,13 +112,13 @@ function objective_summed(x, p)
     weights = QLawWeights(x[1], x[2], x[3], x[4], x[5])
 
     params = QLawParameters(;
-        Wp = Wp,
-        rp_min = rp_min,
-        η_threshold = x[6],
-        η_smoothness = η_smoothness,
-        effectivity_type = AbsoluteEffectivity(),
-        n_search_points = 50,
-        convergence_criterion = SummedErrorConvergence(0.05),
+        Wp=Wp,
+        rp_min=rp_min,
+        η_threshold=x[6],
+        η_smoothness=η_smoothness,
+        effectivity_type=AbsoluteEffectivity(),
+        n_search_points=50,
+        convergence_criterion=SummedErrorConvergence(0.05),
     )
 
     prob = qlaw_problem(
@@ -125,11 +127,11 @@ function objective_summed(x, p)
         tspan,
         μ,
         spacecraft;
-        weights = weights,
-        qlaw_params = params,
-        dynamics_model = dynamics_model,
-        sun_model = sun_model,
-        JD0 = JD0,
+        weights=weights,
+        qlaw_params=params,
+        dynamics_model=dynamics_model,
+        sun_model=sun_model,
+        JD0=JD0,
     )
 
     sol = solve(prob)
@@ -147,13 +149,13 @@ function objective_varga(x, p)
     weights = QLawWeights(x[1], x[2], x[3], x[4], x[5])
 
     params = QLawParameters(;
-        Wp = Wp,
-        rp_min = rp_min,
-        η_threshold = x[6],
-        η_smoothness = η_smoothness,
-        effectivity_type = AbsoluteEffectivity(),
-        n_search_points = 50,
-        convergence_criterion = VargaConvergence(1.0),
+        Wp=Wp,
+        rp_min=rp_min,
+        η_threshold=x[6],
+        η_smoothness=η_smoothness,
+        effectivity_type=AbsoluteEffectivity(),
+        n_search_points=50,
+        convergence_criterion=VargaConvergence(1.0),
     )
 
     prob = qlaw_problem(
@@ -162,11 +164,11 @@ function objective_varga(x, p)
         tspan,
         μ,
         spacecraft;
-        weights = weights,
-        qlaw_params = params,
-        dynamics_model = dynamics_model,
-        sun_model = sun_model,
-        JD0 = JD0,
+        weights=weights,
+        qlaw_params=params,
+        dynamics_model=dynamics_model,
+        sun_model=sun_model,
+        JD0=JD0,
     )
 
     sol = solve(prob)
@@ -184,13 +186,13 @@ function objective_maxelement(x, p)
     weights = QLawWeights(x[1], x[2], x[3], x[4], x[5])
 
     params = QLawParameters(;
-        Wp = Wp,
-        rp_min = rp_min,
-        η_threshold = x[6],
-        η_smoothness = η_smoothness,
-        effectivity_type = AbsoluteEffectivity(),
-        n_search_points = 50,
-        convergence_criterion = MaxElementConvergence(0.01),
+        Wp=Wp,
+        rp_min=rp_min,
+        η_threshold=x[6],
+        η_smoothness=η_smoothness,
+        effectivity_type=AbsoluteEffectivity(),
+        n_search_points=50,
+        convergence_criterion=MaxElementConvergence(0.01),
     )
 
     prob = qlaw_problem(
@@ -199,11 +201,11 @@ function objective_maxelement(x, p)
         tspan,
         μ,
         spacecraft;
-        weights = weights,
-        qlaw_params = params,
-        dynamics_model = dynamics_model,
-        sun_model = sun_model,
-        JD0 = JD0,
+        weights=weights,
+        qlaw_params=params,
+        dynamics_model=dynamics_model,
+        sun_model=sun_model,
+        JD0=JD0,
     )
 
     sol = solve(prob)
@@ -229,13 +231,10 @@ println()
 x0 = lb .+ (ub .- lb) .* 0.5
 
 opt_f_summed = OptimizationFunction(objective_summed)
-opt_prob_summed = OptimizationProblem(opt_f_summed, x0, p_common; lb = lb, ub = ub)
+opt_prob_summed = OptimizationProblem(opt_f_summed, x0, p_common; lb=lb, ub=ub)
 
 @time sol_summed = Optimization.solve(
-    opt_prob_summed,
-    BBO_adaptive_de_rand_1_bin_radiuslimited();
-    maxiters = 500,
-    maxtime = 600.0,
+    opt_prob_summed, BBO_adaptive_de_rand_1_bin_radiuslimited(); maxiters=500, maxtime=600.0
 )
 
 println("\nSummedError BBO Results:")
@@ -249,20 +248,16 @@ println("  Objective value: $(round(sol_summed.objective, digits=6))")
 
 # Verify and extract final result
 weights_summed = QLawWeights(
-    sol_summed.u[1],
-    sol_summed.u[2],
-    sol_summed.u[3],
-    sol_summed.u[4],
-    sol_summed.u[5],
+    sol_summed.u[1], sol_summed.u[2], sol_summed.u[3], sol_summed.u[4], sol_summed.u[5]
 )
 params_summed = QLawParameters(;
-    Wp = Wp,
-    rp_min = rp_min,
-    η_threshold = sol_summed.u[6],
-    η_smoothness = η_smoothness,
-    effectivity_type = AbsoluteEffectivity(),
-    n_search_points = 50,
-    convergence_criterion = SummedErrorConvergence(0.05),
+    Wp=Wp,
+    rp_min=rp_min,
+    η_threshold=sol_summed.u[6],
+    η_smoothness=η_smoothness,
+    effectivity_type=AbsoluteEffectivity(),
+    n_search_points=50,
+    convergence_criterion=SummedErrorConvergence(0.05),
 )
 prob_summed = qlaw_problem(
     oe0,
@@ -270,11 +265,11 @@ prob_summed = qlaw_problem(
     tspan,
     μ,
     spacecraft;
-    weights = weights_summed,
-    qlaw_params = params_summed,
-    dynamics_model = dynamics_model,
-    sun_model = sun_model,
-    JD0 = JD0,
+    weights=weights_summed,
+    qlaw_params=params_summed,
+    dynamics_model=dynamics_model,
+    sun_model=sun_model,
+    JD0=JD0,
 )
 result_summed = solve(prob_summed)
 
@@ -290,20 +285,17 @@ println()
 println("=" ^ 70)
 println("CRITERION 2: VargaConvergence (Rc=1.0)")
 println(
-    "  Converges when: Q * μ/aT³ < Rc * √(Σ W_oe)  (Varga Eq. 35, timescale-normalized)",
+    "  Converges when: Q * μ/aT³ < Rc * √(Σ W_oe)  (Varga Eq. 35, timescale-normalized)"
 )
 println("=" ^ 70)
 println("Running BBO optimization...")
 println()
 
 opt_f_varga = OptimizationFunction(objective_varga)
-opt_prob_varga = OptimizationProblem(opt_f_varga, x0, p_common; lb = lb, ub = ub)
+opt_prob_varga = OptimizationProblem(opt_f_varga, x0, p_common; lb=lb, ub=ub)
 
 @time sol_varga = Optimization.solve(
-    opt_prob_varga,
-    BBO_adaptive_de_rand_1_bin_radiuslimited();
-    maxiters = 500,
-    maxtime = 600.0,
+    opt_prob_varga, BBO_adaptive_de_rand_1_bin_radiuslimited(); maxiters=500, maxtime=600.0
 )
 
 println("\nVarga BBO Results:")
@@ -317,20 +309,16 @@ println("  Objective value: $(round(sol_varga.objective, digits=6))")
 
 # Verify and extract final result
 weights_varga = QLawWeights(
-    sol_varga.u[1],
-    sol_varga.u[2],
-    sol_varga.u[3],
-    sol_varga.u[4],
-    sol_varga.u[5],
+    sol_varga.u[1], sol_varga.u[2], sol_varga.u[3], sol_varga.u[4], sol_varga.u[5]
 )
 params_varga = QLawParameters(;
-    Wp = Wp,
-    rp_min = rp_min,
-    η_threshold = sol_varga.u[6],
-    η_smoothness = η_smoothness,
-    effectivity_type = AbsoluteEffectivity(),
-    n_search_points = 50,
-    convergence_criterion = VargaConvergence(1.0),
+    Wp=Wp,
+    rp_min=rp_min,
+    η_threshold=sol_varga.u[6],
+    η_smoothness=η_smoothness,
+    effectivity_type=AbsoluteEffectivity(),
+    n_search_points=50,
+    convergence_criterion=VargaConvergence(1.0),
 )
 prob_varga = qlaw_problem(
     oe0,
@@ -338,11 +326,11 @@ prob_varga = qlaw_problem(
     tspan,
     μ,
     spacecraft;
-    weights = weights_varga,
-    qlaw_params = params_varga,
-    dynamics_model = dynamics_model,
-    sun_model = sun_model,
-    JD0 = JD0,
+    weights=weights_varga,
+    qlaw_params=params_varga,
+    dynamics_model=dynamics_model,
+    sun_model=sun_model,
+    JD0=JD0,
 )
 result_varga = solve(prob_varga)
 
@@ -363,13 +351,13 @@ println("Running BBO optimization...")
 println()
 
 opt_f_maxelement = OptimizationFunction(objective_maxelement)
-opt_prob_maxelement = OptimizationProblem(opt_f_maxelement, x0, p_common; lb = lb, ub = ub)
+opt_prob_maxelement = OptimizationProblem(opt_f_maxelement, x0, p_common; lb=lb, ub=ub)
 
 @time sol_maxelement = Optimization.solve(
     opt_prob_maxelement,
     BBO_adaptive_de_rand_1_bin_radiuslimited();
-    maxiters = 500,
-    maxtime = 600.0,
+    maxiters=500,
+    maxtime=600.0,
 )
 
 println("\nMaxElement BBO Results:")
@@ -390,13 +378,13 @@ weights_maxelement = QLawWeights(
     sol_maxelement.u[5],
 )
 params_maxelement = QLawParameters(;
-    Wp = Wp,
-    rp_min = rp_min,
-    η_threshold = sol_maxelement.u[6],
-    η_smoothness = η_smoothness,
-    effectivity_type = AbsoluteEffectivity(),
-    n_search_points = 50,
-    convergence_criterion = MaxElementConvergence(0.01),
+    Wp=Wp,
+    rp_min=rp_min,
+    η_threshold=sol_maxelement.u[6],
+    η_smoothness=η_smoothness,
+    effectivity_type=AbsoluteEffectivity(),
+    n_search_points=50,
+    convergence_criterion=MaxElementConvergence(0.01),
 )
 prob_maxelement = qlaw_problem(
     oe0,
@@ -404,16 +392,16 @@ prob_maxelement = qlaw_problem(
     tspan,
     μ,
     spacecraft;
-    weights = weights_maxelement,
-    qlaw_params = params_maxelement,
-    dynamics_model = dynamics_model,
-    sun_model = sun_model,
-    JD0 = JD0,
+    weights=weights_maxelement,
+    qlaw_params=params_maxelement,
+    dynamics_model=dynamics_model,
+    sun_model=sun_model,
+    JD0=JD0,
 )
 result_maxelement = solve(prob_maxelement)
 
 println(
-    "  Transfer time: $(round(result_maxelement.elapsed_time / 86400.0, digits=2)) days",
+    "  Transfer time: $(round(result_maxelement.elapsed_time / 86400.0, digits=2)) days"
 )
 println("  Final mass: $(round(result_maxelement.final_mass, digits=2)) kg")
 println("  Converged: $(result_maxelement.converged)")

@@ -4,6 +4,10 @@
 # Integrates Q-Law control with existing force models from AstroForceModels
 # =============================================================================
 
+export compute_sunlight_fraction, qlaw_thrust_acceleration
+export qlaw_eom, qlaw_eom!
+export apply_frame_rotation, get_sun_position
+
 """
     compute_sunlight_fraction(oe::ModEq, μ::Number, sun_pos::AbstractVector,
                                shadow_model_type::ShadowModelType;
@@ -15,29 +19,33 @@ Compute the sunlight fraction γ using AstroForceModels shadow_model.
 - `oe`: Current orbital elements (ModEq)
 - `μ`: Gravitational parameter [km³/s²]
 - `sun_pos`: Sun position vector in inertial frame [km]
-- `shadow_model_type`: Type of shadow model (Conical, Cylindrical, No_Shadow)
+- `shadow_model_type`: Type of shadow model (Conical, Cylindrical, NoShadow)
 """
 function compute_sunlight_fraction(
     oe::ModEq{T},
     μ::Number,
     sun_pos::AbstractVector,
     shadow_model_type::ShadowModelType;
-    R_Sun::Number = 696000.0,
-    R_Earth::Number = 6378.137,
+    R_Sun::Number=696000.0,
+    R_Earth::Number=6378.137,
 ) where {T}
-    # Convert to Cartesian to get spacecraft position
     cart = Cartesian(oe, μ)
     sat_pos = SVector{3,T}(cart[1], cart[2], cart[3])
-
-    # Use AstroForceModels shadow_model
-    γ = shadow_model(
-        sat_pos,
-        sun_pos,
-        shadow_model_type;
-        R_Sun = T(R_Sun),
-        R_Occulting = T(R_Earth),
+    return compute_sunlight_fraction(
+        sat_pos, sun_pos, shadow_model_type; R_Sun=R_Sun, R_Earth=R_Earth
     )
+end
 
+function compute_sunlight_fraction(
+    sat_pos::SVector{3,T},
+    sun_pos::AbstractVector,
+    shadow_model_type::ShadowModelType;
+    R_Sun::Number=696000.0,
+    R_Earth::Number=6378.137,
+) where {T}
+    γ = shadow_model(
+        sat_pos, sun_pos, shadow_model_type; R_Sun=T(R_Sun), R_Occulting=T(R_Earth)
+    )
     return T(γ)
 end
 
@@ -64,7 +72,7 @@ function qlaw_thrust_acceleration(
     weights::QLawWeights,
     params::QLawParameters,
     μ::Number,
-    γ::Number = one(T),
+    γ::Number=one(T),
 ) where {T}
 
     # Get orbital radius for SEP thrust scaling
@@ -104,28 +112,22 @@ end
 # =============================================================================
 
 """
-    qlaw_eom!(du, u, p, t)
+    qlaw_eom(u, ps, t, problem)
 
 Equations of motion for Q-Law propagation.
 
-State vector u = [p, f, g, h, k, L, m] (ModEq elements + mass)
+State vector u = [p, f, g, h, k, L, m] (ModEq elements + mass).
 
-IMPORTANT: The Q-Law algorithm uses semi-major axis `a` internally (as per the paper:
-"Semi-major axis is used for this application since its implementation by Varga and Perez 
-showed it causes better controller performance"). 
+Uses the p-based Modified Equinoctial GVE from AstroPropagators for propagation
+(giving dp/dt directly), while the Q-Law controller internally uses the a-based
+wrapper `equinoctial_gve_partials` for thrust-direction optimization.
 
-However, our state uses semi-latus rectum `p` (from ModEq). The GVE matrix used here
-is computed via `equinoctial_gve_partials()` (shared with Q-Law core) using the a-based
-formulation, then da/dt is converted to dp/dt for propagation consistency.
-
-Parameters p should be a ComponentArray with:
+Parameters ps should be a ComponentArray with:
 - `μ`: Gravitational parameter
 - `JD`: Julian date
 - Plus any additional parameters needed by force models
 """
 function qlaw_eom(u::AbstractVector, ps::ComponentVector, t::Number, problem::QLawProblem)
-
-    # Extract state - let element type be inferred for AD compatibility
     oe = ModEq(u[1], u[2], u[3], u[4], u[5], u[6])
     m = u[7]
 
@@ -142,7 +144,7 @@ function qlaw_eom(u::AbstractVector, ps::ComponentVector, t::Number, problem::QL
     Θrot = problem.params.Θrot
     pos_qlaw = SVector{3}(cart_vec[1], cart_vec[2], cart_vec[3])
     vel_qlaw = SVector{3}(cart_vec[4], cart_vec[5], cart_vec[6])
-    pos_inertial = apply_frame_rotation(pos_qlaw, -Θrot)  # Q-law → inertial
+    pos_inertial = apply_frame_rotation(pos_qlaw, -Θrot)
     vel_inertial = apply_frame_rotation(vel_qlaw, -Θrot)
     cart_vec_inertial = SVector(
         pos_inertial[1],
@@ -154,90 +156,59 @@ function qlaw_eom(u::AbstractVector, ps::ComponentVector, t::Number, problem::QL
     )
 
     # Get perturbation accelerations in inertial frame from AstroForceModels
-    # (excluding central body gravity, which is handled by GVE)
     acc_inertial =
         build_dynamics_model(cart_vec_inertial, ps, t, problem.dynamics_model) -
-        acceleration(cart_vec_inertial, ps, t, KeplerianGravityAstroModel(; μ = μ))
+        acceleration(cart_vec_inertial, ps, t, KeplerianGravityAstroModel(; μ=μ))
 
     # Rotate perturbation acceleration from inertial back to Q-law frame
-    acc_qlaw_frame = apply_frame_rotation(acc_inertial, Θrot)  # inertial → Q-law
+    acc_qlaw_frame = apply_frame_rotation(acc_inertial, Θrot)
 
-    # Transform to RTN frame (defined by Q-law frame orbit)
-    R_rtn = RTN_frame(cart_vec)
-    acc_rtn = R_rtn * acc_qlaw_frame
+    # Transform to RTN frame using AstroPropagators utility
+    acc_rtn = inertial_to_RTN(acc_qlaw_frame, cart_vec)
 
     # Get sun position for shadow calculation (with Varga Θrot frame rotation)
-    sun_pos = get_sun_position(ps, t, problem.sun_model; Θrot = problem.params.Θrot)
+    sun_pos = get_sun_position(ps, t, problem.sun_model; Θrot=problem.params.Θrot)
 
-    # Compute sunlight fraction
-    γ = compute_sunlight_fraction(oe, μ, sun_pos, problem.shadow_model)
+    # Compute sunlight fraction (reuse pos_qlaw to avoid redundant Cartesian conversion)
+    γ = compute_sunlight_fraction(pos_qlaw, sun_pos, problem.shadow_model)
 
     # Compute Q-Law thrust acceleration
     a_thrust_rtn, throttle, _, _ = qlaw_thrust_acceleration(
-        oe,
-        problem.oeT,
-        m,
-        problem.spacecraft,
-        problem.weights,
-        problem.params,
-        μ,
-        γ,
+        oe, problem.oeT, m, problem.spacecraft, problem.weights, problem.params, μ, γ
     )
 
     # Total acceleration in RTN
     acc_total_rtn = acc_rtn + a_thrust_rtn
 
     # =========================================================================
-    # GVE using equinoctial_gve_partials (shared with Q-Law core)
-    # This ensures dynamics and controller use identical GVE formulations.
+    # p-based GVE from AstroPropagators — gives dp/dt directly, no conversion
     # =========================================================================
 
-    p = oe.p
+    p_el = oe.p
     f, g, h, k, L = oe.f, oe.g, oe.h, oe.k, oe.L
 
-    # Convert to semi-major axis
-    e_sq = f^2 + g^2
-    a = p / (1 - e_sq)
-
-    # Compute GVE matrix using the shared function from qlaw_core.jl
-    A = equinoctial_gve_partials(oe, μ)
-
-    # Compute element rates: oe_dot = A * F_rtn (6-vector)
+    A = AstroPropagators.modified_equinoctial_gve(p_el, f, g, h, k, L, μ)
     oe_dot = A * acc_total_rtn
 
-    da_dt = oe_dot[1]
-    df_dt = oe_dot[2]
-    dg_dt = oe_dot[3]
-    dh_dt = oe_dot[4]
-    dk_dt = oe_dot[5]
-    dL_dt_pert = oe_dot[6]
-
-    # Convert da/dt to dp/dt for state propagation (since state uses p, not a)
-    # p = a * (1 - f² - g²)
-    # dp/dt = da/dt * (1 - f² - g²) + a * (-2f*df/dt - 2g*dg/dt)
-    #       = da/dt * (1 - e²) - 2a * (f*df/dt + g*dg/dt)
-    dp_dt = da_dt * (1 - e_sq) - 2 * a * (f * df_dt + g * dg_dt)
-
-    # Keplerian true longitude rate: dL/dt = h/r² = q²√(μp)/p²
-    # where h = √(μp) is the specific angular momentum and r = p/q
+    # Keplerian true longitude rate: dL/dt = q²√(μp)/p²
     q = compute_q(f, g, L)
-    dL_keplerian = q^2 * sqrt(μ * p) / p^2
+    dL_keplerian = q^2 * sqrt(μ * p_el) / p_el^2
 
     # Orbital radius for mass rate calculation
-    r = p / q
+    r = p_el / q
 
     # Mass rate (AD-compatible: no branching, smooth throttle ensures dm→0 when not thrusting)
     T_N = max_thrust(problem.spacecraft, r) * throttle
-    vex = exhaust_velocity(problem.spacecraft) * 1000.0  # Convert to m/s
-    dm_dt = -T_N / vex  # kg/s
+    vex = exhaust_velocity(problem.spacecraft) * 1000.0
+    dm_dt = -T_N / vex
 
     return SVector(
-        dp_dt,                      # dp/dt (converted from da/dt)
-        df_dt,                      # df/dt
-        dg_dt,                      # dg/dt
-        dh_dt,                      # dh/dt
-        dk_dt,                      # dk/dt
-        dL_dt_pert + dL_keplerian,  # dL/dt (perturbation + Keplerian)
+        oe_dot[1],                      # dp/dt
+        oe_dot[2],                      # df/dt
+        oe_dot[3],                      # dg/dt
+        oe_dot[4],                      # dh/dt
+        oe_dot[5],                      # dk/dt
+        oe_dot[6] + dL_keplerian,       # dL/dt (perturbation + Keplerian)
         dm_dt,
     )
 end
@@ -272,64 +243,44 @@ function apply_frame_rotation(pos::SVector{3,T}, Θrot::Number) where {T}
 end
 
 """
-    get_sun_position(ps::ComponentVector, t::Number, sun_model=nothing; Θrot=0.0)
+    get_sun_position(ps::ComponentVector, t::Number, ::Nothing; Θrot=0.0)
 
-Get Sun position using AstroForceModels ThirdBodyModel or fallback to simple model.
-Applies Varga Θrot frame rotation if non-zero.
-
-The fallback model computes the Sun position in the ecliptic plane and then
-rotates to the J2000 equatorial frame using the mean obliquity of the ecliptic
-(ε ≈ 23.4393°).
-
-# Arguments
-- `ps`: Parameters (should contain JD0)
-- `t`: Time since epoch [s]
-- `sun_model`: Optional ThirdBodyModel for accurate ephemeris
-- `Θrot`: Frame rotation angle [rad] (Varga optimization variable)
+Fallback simple circular orbit approximation for Sun (Earth-centered).
+Computes ecliptic longitude, then rotates to J2000 equatorial frame
+using the mean obliquity of the ecliptic (ε ≈ 23.4393°).
 """
-function get_sun_position(
-    ps::ComponentVector,
-    t::Number,
-    sun_model::Union{ThirdBodyModel,Nothing} = nothing;
-    Θrot::Number = 0.0,
-)
-    # Determine raw sun position
-    if haskey(ps, :sun_pos)
-        sun_pos = SVector{3}(ps.sun_pos...)
-    elseif sun_model !== nothing
-        # Compute Julian date
-        JD = haskey(ps, :JD) ? ps.JD + t / 86400.0 : 2451545.0 + t / 86400.0
-        # ThirdBodyModel returns position in METERS, we need KILOMETERS
-        sun_pos_m = sun_model(JD, Position())
-        sun_pos =
-            SVector{3}(sun_pos_m[1] / 1000.0, sun_pos_m[2] / 1000.0, sun_pos_m[3] / 1000.0)
-    else
-        # Fallback: simple circular orbit approximation for Sun (Earth-centered)
-        # Computes ecliptic longitude, then rotates to J2000 equatorial frame
-        JD = haskey(ps, :JD) ? ps.JD + t / 86400.0 : 2451545.0 + t / 86400.0
-        AU = 1.495978707e8  # km
-        d = JD - 2451545.0
-        M = 357.529 + 0.98560028 * d
-        M_rad = deg2rad(M)
-        λ = M_rad + π  # ecliptic longitude (Sun seen from Earth)
+function get_sun_position(ps::ComponentVector, t::Number, ::Nothing; Θrot::Number=0.0)
+    JD = ps.JD + t / 86400.0
+    AU = 1.495978707e8  # km
+    d = JD - 2451545.0
+    M = 357.529 + 0.98560028 * d
+    M_rad = deg2rad(M)
+    λ = M_rad + π
 
-        # Sun position in ecliptic coordinates
-        x_ecl = AU * cos(λ)
-        y_ecl = AU * sin(λ)
+    x_ecl = AU * cos(λ)
+    y_ecl = AU * sin(λ)
 
-        # Rotate from ecliptic to J2000 equatorial frame
-        # ε = mean obliquity of the ecliptic at J2000
-        ε = deg2rad(23.4393)
-        cε = cos(ε)
-        sε = sin(ε)
+    ε = deg2rad(23.4393)
+    cε = cos(ε)
+    sε = sin(ε)
 
-        sun_pos = SVector{3}(x_ecl, y_ecl * cε, y_ecl * sε)
-    end
-
-    # Apply frame rotation (Varga Θrot parameter)
+    sun_pos = SVector{3}(x_ecl, y_ecl * cε, y_ecl * sε)
     return apply_frame_rotation(sun_pos, Θrot)
 end
 
+"""
+    get_sun_position(ps::ComponentVector, t::Number, sun_model::ThirdBodyModel; Θrot=0.0)
 
-# Note: check_convergence has been consolidated into qlaw_core.jl with
-# multiple dispatch on convergence criterion type.
+Get Sun position using AstroForceModels ThirdBodyModel ephemeris.
+Applies Varga Θrot frame rotation if non-zero.
+"""
+function get_sun_position(
+    ps::ComponentVector, t::Number, sun_model::ThirdBodyModel; Θrot::Number=0.0
+)
+    JD = ps.JD + t / 86400.0
+    sun_pos_m = sun_model(JD, Position())
+    sun_pos = SVector{3}(
+        sun_pos_m[1] / 1000.0, sun_pos_m[2] / 1000.0, sun_pos_m[3] / 1000.0
+    )
+    return apply_frame_rotation(sun_pos, Θrot)
+end
