@@ -1,6 +1,8 @@
 # QLawController.jl
 
 [![Build Status](https://github.com/HAMMERHEAD-Space/QLawController.jl/actions/workflows/CI.yml/badge.svg?branch=master)](https://github.com/HAMMERHEAD-Space/QLawController.jl/actions/workflows/CI.yml?query=branch%3Amaster)
+[![codecov](https://codecov.io/gh/HAMMERHEAD-Space/QLawController.jl/graph/badge.svg?token=Y3D0RQJQHR)](https://codecov.io/gh/HAMMERHEAD-Space/QLawController.jl)
+[![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
 [![Code Style: Blue](https://img.shields.io/badge/code%20style-blue-4495d1.svg)](https://github.com/invenia/BlueStyle)
 
 A Julia package implementing the Q-Law Lyapunov-based feedback control law for low-thrust trajectory optimization. Q-Law provides near-optimal thrust steering for orbit transfers while dramatically reducing the dimensionality of the optimization problem compared to direct methods.
