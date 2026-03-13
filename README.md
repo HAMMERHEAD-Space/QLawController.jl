@@ -11,18 +11,6 @@ A Julia package implementing the Q-Law Lyapunov-based feedback control law for l
 
 Q-Law is a Lyapunov candidate function that provides a feedback guidance law for low-thrust spacecraft. Given current and target orbital elements, Q-Law computes the optimal thrust direction at each instant to minimize a proximity quotient Q, driving the spacecraft toward the target orbit.
 
-### Key Features
-
-- **Lyapunov-based control**: Guarantees monotonic decrease of the proximity function Q toward zero
-- **Automatic differentiation**: Uses ForwardDiff.jl for computing ∂Q/∂œ, enabling gradient-based optimization of weights
-- **Effectivity-based coasting**: Smooth activation function for AD-compatible thrust/coast decisions
-- **Flexible weighting**: Customizable weights for each orbital element to prioritize different transfer objectives
-- **Convergence criteria**: Choose between summed-error (`SummedErrorConvergence`), max-element (`MaxElementConvergence`), or Q-function-based (`VargaConvergence`) stopping conditions
-- **Weight optimization**: Optimize Q-Law weights using global (BlackBoxOptim) or local (SAMIN) solvers via Optimization.jl
-- **Perturbation models**: Gravity harmonics, third-body (Moon/Sun), and eclipse/shadow effects via AstroForceModels.jl
-- **SciML interface**: Compatible with `solve()` and `remake()` patterns from the SciML ecosystem
-- **Integration with HAMMERHEAD packages**: Built on [AstroCoords.jl](https://github.com/HAMMERHEAD-Space/AstroCoords.jl), [AstroPropagators.jl](https://github.com/HAMMERHEAD-Space/AstroPropagators.jl), and [AstroForceModels.jl](https://github.com/HAMMERHEAD-Space/AstroForceModels.jl)
-
 ### Implemented Features
 
 Based on the formulation from Petropoulos (2003) with enhancements from Varga & Perez (2016):
@@ -33,7 +21,7 @@ Based on the formulation from Petropoulos (2003) with enhancements from Varga & 
 - Optimal thrust direction calculation (α\*, β\*)
 - Absolute and relative effectivity metrics (`AbsoluteEffectivity`, `RelativeEffectivity`)
 - Smooth activation function for AD-compatible coasting decisions
-- Eclipse/shadow modeling via AstroForceModels.jl (conical and cylindrical)
+- Eclipse/shadow modeling via AstroForceModels.jl
 - Three convergence criteria: `SummedErrorConvergence`, `MaxElementConvergence`, and `VargaConvergence`
 - Hybrid max-rate computation: exact analytical for semi-major axis, grid search over true longitude for f, g, h, k
 
