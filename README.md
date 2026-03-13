@@ -9,21 +9,8 @@ A Julia package implementing the Q-Law Lyapunov-based feedback control law for l
 
 ## Overview
 
-Q-Law is a Lyapunov candidate function that provides a feedback guidance law for low-thrust spacecraft. Given current and target orbital elements, Q-Law computes the optimal thrust direction at each instant to minimize a proximity quotient Q, driving the spacecraft toward the target orbit.
+Q-Law is a Lyapunov candidate function that provides a feedback guidance law for low-thrust spacecraft. Given current and target orbital elements, Q-Law computes the optimal thrust direction at each instant to minimize a proximity quotient Q, driving the spacecraft toward the target orbit. This implementation is based on the Q-Law formulation by Petropoulos with enhancements from Varga & Perez (equinoctial elements with semi-major axis, scaling, J2/eclipse effects) and Steffen, Falck & Faller (automatic differentiation approach).
 
-### Implemented Features
-
-Based on the formulation from Petropoulos (2003) with enhancements from Varga & Perez (2016):
-
-- Modified equinoctial orbital elements [p, f, g, h, k, L] with semi-major axis conversion (Varga & Perez)
-- Gauss Variational Equations (GVE) A-matrix for equinoctial elements
-- Q-Law Lyapunov function with scaling (Varga Eq. 8) and penalty terms
-- Optimal thrust direction calculation (α\*, β\*)
-- Absolute and relative effectivity metrics (`AbsoluteEffectivity`, `RelativeEffectivity`)
-- Smooth activation function for AD-compatible coasting decisions
-- Eclipse/shadow modeling via AstroForceModels.jl
-- Three convergence criteria: `SummedErrorConvergence`, `MaxElementConvergence`, and `VargaConvergence`
-- Hybrid max-rate computation: exact analytical for semi-major axis, grid search over true longitude for f, g, h, k
 
 ## Installation
 
@@ -75,25 +62,6 @@ println("Converged: ", sol.converged)
 println("Transfer time: ", sol.elapsed_time / 86400.0, " days")
 println("Final mass: ", sol.final_mass, " kg")
 println("Final SMA: ", get_sma(sol.final_oe), " km")
-```
-
-## Spacecraft Types
-
-### Constant Thrust
-
-```julia
-# QLawSpacecraft(dry_mass [kg], wet_mass [kg], thrust [N], Isp [s])
-sc = QLawSpacecraft(500.0, 1000.0, 1.445, 1850.0)
-```
-
-### Solar Electric Propulsion (SEP)
-
-Thrust scales with solar distance as (r\_ref / r)²:
-
-```julia
-# SEPQLawSpacecraft(dry_mass [kg], wet_mass [kg], thrust_ref [N], Isp [s], r_ref [km])
-AU = 1.495978707e8
-sep = SEPQLawSpacecraft(500.0, 1000.0, 0.5, 3000.0, AU)
 ```
 
 ## Effectivity Types
@@ -156,34 +124,6 @@ With the default `Rc=1.0` (the paper's nominal value), this converges when the o
 params = QLawParameters(; convergence_criterion = VargaConvergence(1.0))
 ```
 
-## Weight Optimization
-
-Q-Law performance depends heavily on the choice of weights. QLawController.jl is compatible with Optimization.jl for automated weight tuning.
-
-### Global Search with BlackBoxOptim
-
-```julia
-using Optimization, OptimizationBBO
-
-function objective(x, p)
-    weights = QLawWeights(x[1], x[2], x[3], x[4], x[5])
-    params  = QLawParameters(; η_threshold = x[6], ...)
-    prob    = qlaw_problem(oe0, oeT, tspan, μ, spacecraft; weights = weights, qlaw_params = params)
-    sol     = solve(prob)
-    return sol.converged ? sol.elapsed_time / tspan[2] : 1e10
-end
-
-lb = [0.01, 0.01, 0.01, 0.01, 0.01, -0.01]
-ub = [1.0,  1.0,  1.0,  1.0,  1.0,   0.3]
-x0 = (lb .+ ub) ./ 2
-
-opt_f = OptimizationFunction(objective)
-opt_prob = OptimizationProblem(opt_f, x0, p; lb = lb, ub = ub)
-sol = Optimization.solve(opt_prob, BBO_adaptive_de_rand_1_bin_radiuslimited(); maxiters = 500)
-```
-
-See `examples/weight_optimization.jl` for a complete example including DOE-seeded local refinement with SAMIN.
-
 ## Examples
 
 The `examples/` directory contains runnable scripts:
@@ -195,15 +135,6 @@ The `examples/` directory contains runnable scripts:
 | `earth_to_mars_sep.jl` | Heliocentric Earth-to-Mars transfer with `SEPQLawSpacecraft` (thrust scales as 1/r²) |
 | `weight_optimization.jl` | BBO global search and DOE + SAMIN local refinement for weight tuning |
 | `convergence_criteria_comparison.jl` | Side-by-side comparison of `SummedErrorConvergence`, `VargaConvergence`, and `MaxElementConvergence` |
-
-To run an example:
-
-```julia
-using Pkg
-Pkg.activate("examples")
-Pkg.instantiate()
-include("examples/leo_to_geo.jl")
-```
 
 ## Q-Law Theory
 
@@ -264,7 +195,3 @@ $$\text{activation} = \frac{1}{2}\left(1 + \tanh\frac{\eta - \eta_\text{th}}{\mu
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
-
-## Acknowledgments
-
-This implementation is based on the Q-Law formulation by Petropoulos with enhancements from Varga & Perez (equinoctial elements with semi-major axis, scaling, J2/eclipse effects) and Steffen, Falck & Faller (automatic differentiation approach).
