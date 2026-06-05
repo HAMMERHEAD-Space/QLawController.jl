@@ -80,7 +80,17 @@ SUITE["core"]["compute_dQ_doe_analytical"] = @benchmarkable compute_dQ_doe_analy
 )
 
 SUITE["core"]["compute_Qdot_coefficients"] = @benchmarkable compute_Qdot_coefficients(
-    $_oe0, $_oeT, $_weights, $_μ, $_F_max, $_params
+    $_oe0,
+    $_oeT,
+    $_weights,
+    $_μ,
+    $_F_max,
+    $(_params.Wp),
+    $(_params.rp_min),
+    $(_params.m_scaling),
+    $(_params.n_scaling),
+    $(_params.r_scaling),
+    $(_params.k_penalty),
 )
 
 SUITE["core"]["compute_thrust_direction"] = @benchmarkable compute_thrust_direction(
