@@ -105,8 +105,10 @@ function SciMLBase.solve(
     # Create ODE function (non-mutating for StaticArrays compatibility)
     eom(u, p, t) = qlaw_eom(u, p, t, problem)
 
-    # Create ODE problem
-    ode_prob = ODEProblem(eom, u0, problem.tspan, ps)
+    # Create ODE problem. The `{false}` (out-of-place) parameter is specified
+    # explicitly so SciMLBase skips its `isinplace`/`numargs` introspection of the
+    # `eom` closure, which JET flags as a possible error on Julia 1.12.
+    ode_prob = ODEProblem{false}(eom, u0, problem.tspan, ps)
 
     # Solve
     if saveat === nothing
