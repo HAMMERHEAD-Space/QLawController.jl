@@ -1,3 +1,5 @@
+# THIS IS NO LONGER MAINTAINED AS I HAVE DROPPED MY PHD WORK
+
 # QLawController.jl
 
 [![Build Status](https://github.com/HAMMERHEAD-Space/QLawController.jl/actions/workflows/CI.yml/badge.svg?branch=master)](https://github.com/HAMMERHEAD-Space/QLawController.jl/actions/workflows/CI.yml?query=branch%3Amaster)
